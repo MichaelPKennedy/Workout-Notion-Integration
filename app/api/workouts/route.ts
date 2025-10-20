@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { Client } from "@notionhq/client";
-import { getTemplateById } from "@/lib/templates-storage";
 
 export async function POST(request: Request) {
   try {
@@ -13,42 +12,50 @@ export async function POST(request: Request) {
       );
     }
 
-    const template = getTemplateById(templateId);
-    if (!template) {
-      return NextResponse.json(
-        { error: "Template not found" },
-        { status: 404 }
-      );
-    }
-
     // Initialize Notion client
     const notion = new Client({
       auth: process.env.NOTION_API_KEY,
     });
 
-    const EXERCISES_DB = process.env.NOTION_EXERCISES_DB!;
+    const TEMPLATE_EXERCISES_DB = process.env.NOTION_TEMPLATE_EXERCISES_DB!;
     const WEEKLY_WORKOUT_DB = process.env.NOTION_WEEKLY_WORKOUT_DB!;
+    // const TEMPLATES_DB = process.env.NOTION_TEMPLATES_DB!; // not used
 
-    // Fetch all exercises to get their IDs
-    const exercisesResponse = await notion.databases.query({
-      database_id: EXERCISES_DB,
+    // Fetch the template name
+    const templatePage = await notion.pages.retrieve({ page_id: templateId });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const templateName =
+      (templatePage as any).properties.Name?.title?.[0]?.plain_text ||
+      "Workout";
+
+    // Fetch template exercises for this template
+    const templateExercisesResponse = await notion.databases.query({
+      database_id: TEMPLATE_EXERCISES_DB,
+      filter: {
+        property: "Template",
+        relation: {
+          contains: templateId,
+        },
+      },
+      sorts: [
+        {
+          property: "Order",
+          direction: "ascending",
+        },
+      ],
     });
-
-    const exerciseMap = new Map(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      exercisesResponse.results.map((page: any) => [
-        page.properties.Name?.title?.[0]?.plain_text || "",
-        page.id,
-      ])
-    );
 
     // Create a workout entry for each exercise in the template
     const createdWorkouts = [];
-    for (const exercise of template.exercises) {
-      const exerciseId = exerciseMap.get(exercise.exerciseName);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const page of templateExercisesResponse.results as any[]) {
+      const exerciseId = page.properties.Exercise?.relation?.[0]?.id;
+      const exerciseName = page.properties.Name?.title?.[0]?.plain_text || "";
+      const defaultSets = page.properties["Default Sets"]?.number || 0;
+      const defaultReps = page.properties["Default Reps"]?.number || 0;
 
       if (!exerciseId) {
-        console.warn(`Exercise not found: ${exercise.exerciseName}`);
+        console.warn(`Exercise not found: ${exerciseName}`);
         continue;
       }
 
@@ -59,7 +66,7 @@ export async function POST(request: Request) {
             title: [
               {
                 text: {
-                  content: `${template.name} - ${exercise.exerciseName}`,
+                  content: `${templateName} - ${exerciseName}`,
                 },
               },
             ],
@@ -71,10 +78,10 @@ export async function POST(request: Request) {
             relation: [{ id: exerciseId }],
           },
           "Total Sets": {
-            number: exercise.defaultSets,
+            number: defaultSets,
           },
           "Total Reps": {
-            number: exercise.defaultReps,
+            number: defaultReps,
           },
           "Max Weight": {
             number: 0,
@@ -84,9 +91,9 @@ export async function POST(request: Request) {
 
       createdWorkouts.push({
         id: workoutEntry.id,
-        name: exercise.exerciseName,
-        sets: exercise.defaultSets,
-        reps: exercise.defaultReps,
+        name: exerciseName,
+        sets: defaultSets,
+        reps: defaultReps,
         maxWeight: 0,
       });
     }
@@ -94,7 +101,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       workouts: createdWorkouts,
-      message: `Created ${createdWorkouts.length} workout entries for ${template.name}`,
+      message: `Created ${createdWorkouts.length} workout entries for ${templateName}`,
     });
   } catch (error) {
     console.error("Error creating workout from template:", error);
