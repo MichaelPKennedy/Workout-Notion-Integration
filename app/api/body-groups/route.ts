@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
-import { Client } from '@notionhq/client';
-import { BodyGroup } from '@/types/workout';
+import { NextResponse } from "next/server";
+import { Client } from "@notionhq/client";
+import { BodyGroup } from "@/types/workout";
 
 export async function GET() {
   try {
@@ -14,14 +14,18 @@ export async function GET() {
       database_id: BODY_GROUPS_DB,
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const bodyGroups: BodyGroup[] = response.results.map((page: any) => ({
       id: page.id,
-      name: page.properties.Name?.title?.[0]?.plain_text || '',
+      name: page.properties.Name?.title?.[0]?.plain_text || "",
     }));
 
     return NextResponse.json(bodyGroups);
   } catch (error) {
-    console.error('Error fetching body groups:', error);
-    return NextResponse.json({ error: 'Failed to fetch body groups' }, { status: 500 });
+    console.error("Error fetching body groups:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch body groups" },
+      { status: 500 }
+    );
   }
 }

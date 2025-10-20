@@ -195,12 +195,15 @@ export default function Home() {
             <h3 className="font-semibold text-gray-800 mb-3">How it works:</h3>
             <ol className="list-decimal list-inside space-y-2 text-gray-700">
               <li>Choose the date for your workout</li>
-              <li>Select a workout template (e.g., "Chest & Triceps")</li>
-              <li>Click "Create Workout in Notion"</li>
+              <li>
+                Select a workout template (e.g., &quot;Chest &amp;
+                Triceps&quot;)
+              </li>
+              <li>Click &quot;Create Workout in Notion&quot;</li>
               <li>
                 The app will automatically create individual entries in your
-                Notion "Weekly Workout Plan" database for each exercise with
-                default sets and reps
+                Notion &quot;Weekly Workout Plan&quot; database for each
+                exercise with default sets and reps
               </li>
               <li>
                 Open Notion to update the actual reps, sets, and max weight you
