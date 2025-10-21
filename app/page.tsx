@@ -17,9 +17,10 @@ interface DayCardProps {
   dayWorkout: DayWorkout;
   index: number;
   onEdit: (date: string, template: WorkoutTemplate | null) => void;
+  isMovingTo?: boolean;
 }
 
-function DayCard({ dayWorkout, index, onEdit }: DayCardProps) {
+function DayCard({ dayWorkout, index, onEdit, isMovingTo }: DayCardProps) {
   const hasWorkout = !!dayWorkout.template;
 
   // Make it draggable if it has a workout
@@ -106,6 +107,29 @@ function DayCard({ dayWorkout, index, onEdit }: DayCardProps) {
             {dayWorkout.template.exercises.length} exercises
           </p>
         </div>
+      ) : isMovingTo ? (
+        <div className="flex items-center justify-center">
+          <svg
+            className="animate-spin h-8 w-8 text-blue-600"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            ></circle>
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+        </div>
       ) : (
         <p className="text-xs text-gray-500">
           {isOver ? "Drop here" : "No workout"}
@@ -132,6 +156,9 @@ export default function Home() {
   >([]);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingDate, setEditingDate] = useState<string>("");
+  const [movingToDate, setMovingToDate] = useState<string | null>(null);
+  const [todayWorkoutLoading, setTodayWorkoutLoading] = useState(true);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
 
   useEffect(() => {
     fetchTemplates();
@@ -160,6 +187,8 @@ export default function Home() {
   };
 
   const loadWeeklySchedule = async (startDateParam?: string) => {
+    setScheduleLoading(true);
+    setTodayWorkoutLoading(true);
     try {
       const today = startDateParam ? new Date(startDateParam) : new Date();
       const endDate = new Date(today);
@@ -275,8 +304,12 @@ export default function Home() {
       }
 
       setWeeklySchedule(schedule);
+      setScheduleLoading(false);
+      setTodayWorkoutLoading(false);
     } catch (error) {
       console.error("Error loading weekly schedule:", error);
+      setScheduleLoading(false);
+      setTodayWorkoutLoading(false);
     }
   };
 
@@ -448,6 +481,7 @@ export default function Home() {
 
   const handleMoveWorkout = async (fromDate: string, toDate: string) => {
     setLoading(true);
+    setMovingToDate(toDate);
     try {
       const response = await fetch("/api/workouts/move", {
         method: "POST",
@@ -467,6 +501,7 @@ export default function Home() {
       setMessage("❌ Failed to move workout");
     } finally {
       setLoading(false);
+      setMovingToDate(null);
     }
   };
 
@@ -576,7 +611,30 @@ export default function Home() {
         {/* Today&apos;s Workout Section */}
         <div className="bg-white rounded-2xl shadow-lg p-8">
           <h2 className="text-2xl font-bold text-gray-800 mb-4">Today&apos;s Workout</h2>
-          {todayWorkout ? (
+          {todayWorkoutLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <svg
+                className="animate-spin h-12 w-12 text-blue-600"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+            </div>
+          ) : todayWorkout ? (
             <div className="space-y-4">
               <div
                 className={`bg-gradient-to-r rounded-lg p-6 border-2 ${
@@ -685,18 +743,44 @@ export default function Home() {
             </button>
           </div>
 
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-            <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
-              {weeklySchedule.map((dayWorkout, index) => (
-                <DayCard
-                  key={dayWorkout.date}
-                  dayWorkout={dayWorkout}
-                  index={index}
-                  onEdit={handleEditWorkout}
-                />
-              ))}
+          {scheduleLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <svg
+                className="animate-spin h-12 w-12 text-blue-600"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
             </div>
-          </DndContext>
+          ) : (
+            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+              <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+                {weeklySchedule.map((dayWorkout, index) => (
+                  <DayCard
+                    key={dayWorkout.date}
+                    dayWorkout={dayWorkout}
+                    index={index}
+                    onEdit={handleEditWorkout}
+                    isMovingTo={movingToDate === dayWorkout.date}
+                  />
+                ))}
+              </div>
+            </DndContext>
+          )}
         </div>
 
 
