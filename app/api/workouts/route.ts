@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
     const TEMPLATE_EXERCISES_DB = process.env.NOTION_TEMPLATE_EXERCISES_DB!;
     const WEEKLY_WORKOUT_DB = process.env.NOTION_WEEKLY_WORKOUT_DB!;
-    // const TEMPLATES_DB = process.env.NOTION_TEMPLATES_DB!; // not used
+    const DAILY_WORKOUTS_DB = process.env.NOTION_DAILY_WORKOUTS_DB!;
 
     // Fetch the template name
     const templatePage = await notion.pages.retrieve({ page_id: templateId });
@@ -27,6 +27,45 @@ export async function POST(request: Request) {
     const templateName =
       (templatePage as any).properties.Name?.title?.[0]?.plain_text ||
       "Workout";
+
+    // Check if a daily workout entry already exists for this date
+    const existingDailyWorkout = await notion.databases.query({
+      database_id: DAILY_WORKOUTS_DB,
+      filter: {
+        property: "Date",
+        date: {
+          equals: date,
+        },
+      },
+    });
+
+    // Create a daily workout entry if it doesn't exist
+    let dailyWorkoutId = null;
+    if (existingDailyWorkout.results.length === 0) {
+      const dailyWorkoutEntry = await notion.pages.create({
+        parent: { database_id: DAILY_WORKOUTS_DB },
+        properties: {
+          Name: {
+            title: [
+              {
+                text: {
+                  content: templateName,
+                },
+              },
+            ],
+          },
+          Date: {
+            date: { start: date },
+          },
+          Completed: {
+            checkbox: false,
+          },
+        },
+      });
+      dailyWorkoutId = dailyWorkoutEntry.id;
+    } else {
+      dailyWorkoutId = existingDailyWorkout.results[0].id;
+    }
 
     // Fetch template exercises for this template
     const templateExercisesResponse = await notion.databases.query({
@@ -50,14 +89,20 @@ export async function POST(request: Request) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const page of templateExercisesResponse.results as any[]) {
       const exerciseId = page.properties.Exercise?.relation?.[0]?.id;
-      const exerciseName = page.properties.Name?.title?.[0]?.plain_text || "";
+      const fullName = page.properties.Name?.title?.[0]?.plain_text || "";
       const defaultSets = page.properties["Default Sets"]?.number || 0;
       const defaultReps = page.properties["Default Reps"]?.number || 0;
 
       if (!exerciseId) {
-        console.warn(`Exercise not found: ${exerciseName}`);
+        console.warn(`Exercise not found: ${fullName}`);
         continue;
       }
+
+      // Extract just the exercise name, removing the template prefix if it exists
+      // Format might be "Template Name - Exercise Name", so we extract after the last " - "
+      const parts = fullName.split(" - ");
+      const exerciseName =
+        parts.length > 1 ? parts[parts.length - 1] : fullName;
 
       const workoutEntry = await notion.pages.create({
         parent: { database_id: WEEKLY_WORKOUT_DB },
@@ -101,6 +146,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       workouts: createdWorkouts,
+      dailyWorkoutId,
       message: `Created ${createdWorkouts.length} workout entries for ${templateName}`,
     });
   } catch (error) {
