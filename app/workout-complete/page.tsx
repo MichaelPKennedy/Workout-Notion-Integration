@@ -9,7 +9,7 @@ export default function WorkoutCompletePage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      const countInterval = setInterval(() => {
+      setInterval(() => {
         setCountdown((prev) => prev - 1);
       }, 1000);
     }, 500);

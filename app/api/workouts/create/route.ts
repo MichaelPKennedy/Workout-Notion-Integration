@@ -23,7 +23,6 @@ export async function POST(request: Request) {
 
     // Fetch the template to get its name
     const templatePage = await notion.pages.retrieve({ page_id: templateId });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const templateName = (templatePage as any).properties.Name?.title?.[0]?.plain_text || "Workout";
 
     // Fetch the template exercise entry to get the proper template exercise relation

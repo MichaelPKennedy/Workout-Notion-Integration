@@ -10,12 +10,6 @@ interface AvailableExercise {
   bodyGroupName?: string;
 }
 
-interface Workout {
-  id: string;
-  name: string;
-  exerciseIds: string[];
-}
-
 interface WorkoutEditModalProps {
   isOpen: boolean;
   date: string;
@@ -52,7 +46,7 @@ export function WorkoutEditModal({
         setSelectedTemplate(currentTemplate.id);
         setDeletedExerciseIds([]);
         setDeletedPageIds([]);
-        loadWorkoutsForDay(currentTemplate.id);
+        loadWorkoutsForDay();
         loadAvailableExercises(currentTemplate.id);
       } else {
         // Reset form for create mode
@@ -64,13 +58,13 @@ export function WorkoutEditModal({
         setOriginalExercises([]);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTemplate, isOpen, date, templates]);
 
-  const loadWorkoutsForDay = async (templateId: string) => {
+  const loadWorkoutsForDay = async () => {
     try {
       // Fetch workouts for this specific day
       const response = await fetch(`/api/workouts?startDate=${date}&endDate=${date}`);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const workouts: any[] = await response.json();
 
       // Convert workouts to CustomizableExercise format

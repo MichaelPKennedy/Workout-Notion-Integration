@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { WorkoutTemplate } from "@/types/workout";
-import { ExerciseCustomizer, CustomizableExercise } from "@/app/components/ExerciseCustomizer";
+import { CustomizableExercise } from "@/app/components/ExerciseCustomizer";
 import { WorkoutEditModal } from "@/app/components/WorkoutEditModal";
 import { DndContext, DragEndEvent, useDraggable, useDroppable, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 
@@ -16,7 +16,7 @@ interface DayWorkout {
 interface DayCardProps {
   dayWorkout: DayWorkout;
   index: number;
-  onEdit: (date: string, template: WorkoutTemplate | null) => void;
+  onEdit: (date: string) => void;
   isMovingTo?: boolean;
 }
 
@@ -42,10 +42,10 @@ function DayCard({ dayWorkout, index, onEdit, isMovingTo }: DayCardProps) {
     <div
       ref={setNodeRef}
       {...(hasWorkout ? { ...dragAttributes, ...dragListeners } : {})}
-      onClick={(e) => {
+      onClick={() => {
         // Only trigger edit if not dragging
         if (!isDragging) {
-          onEdit(dayWorkout.date, dayWorkout.template);
+          onEdit(dayWorkout.date);
         }
       }}
       className={`rounded-lg p-4 text-center border-2 relative transition-all ${
@@ -144,16 +144,6 @@ export default function Home() {
   const [weeklySchedule, setWeeklySchedule] = useState<DayWorkout[]>([]);
   const [todayWorkout, setTodayWorkout] = useState<WorkoutTemplate | null>(null);
   const [inProgressWorkout, setInProgressWorkout] = useState<boolean>(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
-  );
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [customExercises, setCustomExercises] = useState<CustomizableExercise[]>([]);
-  const [availableExercises, setAvailableExercises] = useState<
-    Array<{ id: string; name: string; bodyGroupName?: string }>
-  >([]);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingDate, setEditingDate] = useState<string>("");
   const [movingToDate, setMovingToDate] = useState<string | null>(null);
@@ -168,6 +158,7 @@ export default function Home() {
     loadWeeklySchedule().catch((err) =>
       console.error("Error loading weekly schedule:", err)
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchTemplates = async () => {
@@ -177,7 +168,6 @@ export default function Home() {
       setTemplates(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Error fetching templates:", error);
-      setMessage("Error loading templates");
     }
   };
 
@@ -315,92 +305,6 @@ export default function Home() {
     }
   };
 
-  const loadAvailableExercises = async (templateId: string) => {
-    try {
-      const template = templates.find((t) => t.id === templateId);
-      if (!template || template.bodyGroups.length === 0) {
-        setAvailableExercises([]);
-        return;
-      }
-
-      const response = await fetch("/api/exercises/by-body-groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bodyGroupIds: template.bodyGroups }),
-      });
-
-      const exercises = await response.json();
-      setAvailableExercises(exercises);
-    } catch (error) {
-      console.error("Error loading available exercises:", error);
-    }
-  };
-
-  const handleTemplateChange = (templateId: string) => {
-    setSelectedTemplate(templateId);
-    setCustomExercises([]);
-
-    if (templateId) {
-      const template = templates.find((t) => t.id === templateId);
-      if (template) {
-        // Initialize with template exercises
-        setCustomExercises(
-          template.exercises.map((ex) => ({
-            exerciseId: ex.exerciseId,
-            exerciseName: ex.exerciseName,
-            defaultSets: ex.defaultSets,
-            defaultReps: ex.defaultReps,
-          }))
-        );
-        loadAvailableExercises(templateId);
-      }
-    }
-  };
-
-  const handleCreateWorkout = async () => {
-    if (!selectedTemplate) {
-      setMessage("Please select a workout template");
-      return;
-    }
-
-    if (customExercises.length === 0) {
-      setMessage("Please add at least one exercise");
-      return;
-    }
-
-    setLoading(true);
-    setMessage("");
-
-    try {
-      const response = await fetch("/api/workouts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          templateId: selectedTemplate,
-          date: selectedDate,
-          customExercises,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setMessage(`✅ ${data.message}`);
-        // Reset form
-        setSelectedTemplate("");
-      } else {
-        setMessage(`❌ Error: ${data.error}`);
-      }
-    } catch (error) {
-      console.error("Error creating workout:", error);
-      setMessage("❌ Failed to create workout");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleStartWorkout = () => {
     const today = new Date().toISOString().split("T")[0];
 
@@ -418,7 +322,7 @@ export default function Home() {
     window.location.href = `/workout/${today}`;
   };
 
-  const handleEditWorkout = (date: string, template: WorkoutTemplate | null) => {
+  const handleEditWorkout = (date: string) => {
     setEditingDate(date);
     setEditModalOpen(true);
   };
@@ -428,7 +332,6 @@ export default function Home() {
     customExercises: CustomizableExercise[],
     deletedExerciseIds?: string[]
   ) => {
-    setLoading(true);
     try {
       // First, delete any removed exercises
       if (deletedExerciseIds && deletedExerciseIds.length > 0) {
@@ -464,25 +367,19 @@ export default function Home() {
 
         if (!response.ok) {
           const data = await response.json();
-          setMessage(`❌ Error: ${data.error}`);
-          setLoading(false);
+          console.error("Error updating workout:", data.error);
           return;
         }
       }
 
-      setMessage("✅ Workout updated successfully");
       // Reload the weekly schedule
       await loadWeeklySchedule();
     } catch (error) {
       console.error("Error updating workout:", error);
-      setMessage("❌ Failed to update workout");
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleMoveWorkout = async (fromDate: string, toDate: string) => {
-    setLoading(true);
     setMovingToDate(toDate);
     try {
       const response = await fetch("/api/workouts/move", {
@@ -492,23 +389,19 @@ export default function Home() {
       });
 
       if (response.ok) {
-        setMessage("✅ Workout moved successfully");
         await loadWeeklySchedule();
       } else {
         const data = await response.json();
-        setMessage(`❌ Error: ${data.error}`);
+        console.error("Error moving workout:", data.error);
       }
     } catch (error) {
       console.error("Error moving workout:", error);
-      setMessage("❌ Failed to move workout");
     } finally {
-      setLoading(false);
       setMovingToDate(null);
     }
   };
 
   const handleDeleteWorkout = async (date: string) => {
-    setLoading(true);
     try {
       // Delete all workout entries for this date from Weekly Workout Plan
       const workoutsResponse = await fetch(`/api/workouts?startDate=${date}&endDate=${date}`);
@@ -536,14 +429,10 @@ export default function Home() {
         });
       }
 
-      setMessage("✅ Workout deleted successfully");
       setEditModalOpen(false);
       await loadWeeklySchedule();
     } catch (error) {
       console.error("Error deleting workout:", error);
-      setMessage("❌ Failed to delete workout");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -612,8 +501,6 @@ export default function Home() {
       },
     })
   );
-
-  const selectedTemplateData = templates.find((t) => t.id === selectedTemplate);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
