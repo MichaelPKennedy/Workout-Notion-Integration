@@ -199,8 +199,8 @@ export default function WorkoutPage() {
 
       setMessage("Workout finished! Progress saved to Notion.");
       setTimeout(() => {
-        router.push("/");
-      }, 1500);
+        router.push("/workout-complete");
+      }, 500);
     } catch (error) {
       console.error("Error finishing workout:", error);
       setMessage("Error saving workout to Notion");
