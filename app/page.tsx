@@ -89,11 +89,11 @@ export default function Home() {
 
       // Create a map of workouts by date
       const workoutsByDate: {
-        [key: string]: { templateName: string; name: string }[];
+        [key: string]: { templateId: string; templateName: string; name: string; exerciseIds: string[] }[];
       } = {};
 
       workouts.forEach(
-        (workout: { date: string; name: string }) => {
+        (workout: { date: string; name: string; templateId?: string; exerciseIds: string[] }) => {
           if (workout.date) {
             if (!workoutsByDate[workout.date]) {
               workoutsByDate[workout.date] = [];
@@ -101,9 +101,12 @@ export default function Home() {
             // Extract template name (format: "Template Name - Exercise Name")
             const parts = workout.name.split(" - ");
             const templateName = parts[0] || "Workout";
+
             workoutsByDate[workout.date].push({
+              templateId: workout.templateId || "",
               templateName,
               name: workout.name,
+              exerciseIds: workout.exerciseIds || [],
             });
           }
         }
@@ -121,6 +124,16 @@ export default function Home() {
         const dayWorkouts = workoutsByDate[dateStr] || [];
         const uniqueTemplates = [...new Set(dayWorkouts.map((w) => w.templateName))];
         const templateName = uniqueTemplates[0] || null;
+        let templateId = dayWorkouts[0]?.templateId || "";
+
+        // If templateId is not available, try to find it by matching the template name
+        if (!templateId && templateName) {
+          const matchingTemplate = templates.find(t => t.name === templateName);
+          if (matchingTemplate) {
+            templateId = matchingTemplate.id;
+          }
+        }
+
         const isCompleted = completionByDate[dateStr] || false;
 
         schedule.push({
@@ -128,7 +141,7 @@ export default function Home() {
           date: dateStr,
           template: templateName
             ? ({
-                id: "",
+                id: templateId,
                 name: templateName,
                 exercises: dayWorkouts.map(() => ({
                   exerciseId: "",
@@ -274,30 +287,54 @@ export default function Home() {
 
   const handleSaveEditedWorkout = async (
     templateId: string,
-    customExercises: CustomizableExercise[]
+    customExercises: CustomizableExercise[],
+    deletedExerciseIds?: string[]
   ) => {
     setLoading(true);
     try {
-      const response = await fetch("/api/workouts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          templateId,
-          date: editingDate,
-          customExercises,
-        }),
-      });
-
-      if (response.ok) {
-        setMessage("✅ Workout updated successfully");
-        // Reload the weekly schedule
-        await loadWeeklySchedule();
-      } else {
-        const data = await response.json();
-        setMessage(`❌ Error: ${data.error}`);
+      // First, delete any removed exercises
+      if (deletedExerciseIds && deletedExerciseIds.length > 0) {
+        for (const exerciseId of deletedExerciseIds) {
+          await fetch("/api/workouts/delete", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              date: editingDate,
+              exerciseId,
+            }),
+          });
+        }
       }
+
+      // Only create workout entries for NEW exercises (those without pageId)
+      const newExercises = customExercises.filter(ex => !ex.pageId);
+
+      if (newExercises.length > 0) {
+        const response = await fetch("/api/workouts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            templateId,
+            date: editingDate,
+            customExercises: newExercises,
+          }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          setMessage(`❌ Error: ${data.error}`);
+          setLoading(false);
+          return;
+        }
+      }
+
+      setMessage("✅ Workout updated successfully");
+      // Reload the weekly schedule
+      await loadWeeklySchedule();
     } catch (error) {
       console.error("Error updating workout:", error);
       setMessage("❌ Failed to update workout");

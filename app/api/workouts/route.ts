@@ -132,6 +132,9 @@ export async function POST(request: Request) {
           Date: {
             date: { start: date },
           },
+          "Workout Template": {
+            relation: [{ id: templateId }],
+          },
           Exercises: {
             relation: [{ id: exerciseId }],
           },
@@ -225,7 +228,7 @@ export async function GET(request: Request) {
       maxWeight: page.properties["Max Weight"]?.number || 0,
       templateId:
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        page.properties.Template?.relation?.[0]?.id || undefined,
+        page.properties["Workout Template"]?.relation?.[0]?.id || undefined,
       exerciseIds:
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         page.properties.Exercises?.relation?.map((rel: any) => rel.id) || [],

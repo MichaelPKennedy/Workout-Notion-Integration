@@ -38,8 +38,11 @@ export function ExerciseCustomizer({
 
   const filtered = availableExercises.filter((ex) => !exercises.some((e) => e.exerciseId === ex.id));
 
-  const removeExercise = (exerciseId: string) => {
-    const updated = exercises.filter((ex) => ex.exerciseId !== exerciseId);
+  const removeExercise = (identifier: string) => {
+    // Filter by pageId if it exists, otherwise by exerciseId
+    const updated = exercises.filter((ex) =>
+      (ex.pageId || ex.exerciseId) !== identifier
+    );
     onExercisesChange(updated);
   };
 
@@ -75,7 +78,7 @@ export function ExerciseCustomizer({
         <div className="space-y-2">
           {exercises.map((exercise) => (
             <div
-              key={exercise.exerciseId}
+              key={exercise.pageId || exercise.exerciseId}
               className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border border-gray-200"
             >
               <div className="flex-1">
@@ -85,7 +88,7 @@ export function ExerciseCustomizer({
                 </p>
               </div>
               <button
-                onClick={() => removeExercise(exercise.exerciseId)}
+                onClick={() => removeExercise(exercise.pageId || exercise.exerciseId)}
                 className="ml-4 px-3 py-1 text-red-600 hover:text-red-700 font-semibold rounded hover:bg-red-50 transition-colors"
               >
                 ✕

@@ -38,6 +38,7 @@ export default function WorkoutPage() {
 
   const [workoutName, setWorkoutName] = useState<string>("");
   const [exercises, setExercises] = useState<ExerciseProgress[]>([]);
+  const [originalExercises, setOriginalExercises] = useState<ExerciseProgress[]>([]);
   const [availableExercises, setAvailableExercises] = useState<AvailableExercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -138,6 +139,9 @@ export default function WorkoutPage() {
         setExercises(initialExercises);
       }
 
+      // Store original exercises for deletion tracking
+      setOriginalExercises(initialExercises);
+
       setLoading(false);
     } catch (error) {
       console.error("Error loading workout exercises:", error);
@@ -224,6 +228,26 @@ export default function WorkoutPage() {
     setMessage("");
 
     try {
+      // Find deleted exercises (original exercises not in current list)
+      const currentPageIds = new Set(exercises.map((ex) => ex.pageId));
+      const deletedExercises = originalExercises.filter((ex) => !currentPageIds.has(ex.pageId));
+
+      // Delete removed exercises from database
+      for (const exercise of deletedExercises) {
+        // We need to get the exercise ID from the workout entry
+        // The pageId is the workout page ID in the Weekly Workout Plan database
+        await fetch("/api/workouts/delete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            date,
+            pageId: exercise.pageId,
+          }),
+        });
+      }
+
       // Separate new exercises from existing ones
       const newExercises = exercises.filter((ex) => ex.pageId.startsWith("new-"));
       const existingExercises = exercises.filter((ex) => !ex.pageId.startsWith("new-"));

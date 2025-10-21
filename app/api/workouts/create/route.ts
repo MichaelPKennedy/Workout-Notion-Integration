@@ -71,7 +71,7 @@ export async function POST(request: Request) {
         Exercises: {
           relation: [{ id: exerciseId }],
         },
-        Template: {
+        "Workout Template": {
           relation: [{ id: templateId }],
         },
         ...(templateExerciseId && {

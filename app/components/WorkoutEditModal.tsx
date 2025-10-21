@@ -10,13 +10,19 @@ interface AvailableExercise {
   bodyGroupName?: string;
 }
 
+interface Workout {
+  id: string;
+  name: string;
+  exerciseIds: string[];
+}
+
 interface WorkoutEditModalProps {
   isOpen: boolean;
   date: string;
   currentTemplate: WorkoutTemplate | null;
   templates: WorkoutTemplate[];
   onClose: () => void;
-  onSave: (templateId: string, customExercises: CustomizableExercise[]) => Promise<void>;
+  onSave: (templateId: string, customExercises: CustomizableExercise[], deletedExerciseIds?: string[]) => Promise<void>;
 }
 
 export function WorkoutEditModal({
@@ -31,31 +37,66 @@ export function WorkoutEditModal({
   const [customExercises, setCustomExercises] = useState<CustomizableExercise[]>([]);
   const [availableExercises, setAvailableExercises] = useState<AvailableExercise[]>([]);
   const [saving, setSaving] = useState(false);
+  const [deletedExerciseIds, setDeletedExerciseIds] = useState<string[]>([]);
+  const [deletedPageIds, setDeletedPageIds] = useState<string[]>([]);
+  const [originalExercises, setOriginalExercises] = useState<CustomizableExercise[]>([]);
   const isCreateMode = !currentTemplate;
 
   useEffect(() => {
-    if (currentTemplate) {
-      setSelectedTemplate(currentTemplate.id);
-      setCustomExercises(
-        currentTemplate.exercises.map((ex) => ({
-          exerciseId: ex.exerciseId,
-          exerciseName: ex.exerciseName,
-          defaultSets: ex.defaultSets,
-          defaultReps: ex.defaultReps,
-        }))
-      );
-      loadAvailableExercises(currentTemplate.id);
-    } else {
-      // Reset form for create mode
-      setSelectedTemplate("");
-      setCustomExercises([]);
-      setAvailableExercises([]);
+    if (isOpen && date) {
+      if (currentTemplate) {
+        setSelectedTemplate(currentTemplate.id);
+        setDeletedExerciseIds([]);
+        setDeletedPageIds([]);
+        loadWorkoutsForDay(currentTemplate.id);
+        loadAvailableExercises(currentTemplate.id);
+      } else {
+        // Reset form for create mode
+        setSelectedTemplate("");
+        setCustomExercises([]);
+        setAvailableExercises([]);
+        setDeletedExerciseIds([]);
+        setDeletedPageIds([]);
+        setOriginalExercises([]);
+      }
     }
-  }, [currentTemplate, isOpen]);
+  }, [currentTemplate, isOpen, date, templates]);
+
+  const loadWorkoutsForDay = async (templateId: string) => {
+    try {
+      // Fetch workouts for this specific day
+      const response = await fetch(`/api/workouts?startDate=${date}&endDate=${date}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const workouts: any[] = await response.json();
+
+      // Convert workouts to CustomizableExercise format
+      const exercises = workouts.map((workout) => {
+        // Extract exercise name (everything after " - ")
+        const parts = workout.name.split(" - ");
+        const exerciseName = parts.slice(1).join(" - ") || workout.name;
+        // Use the first exercise ID from the relation if available
+        const exerciseId = workout.exerciseIds?.[0] || "";
+
+        return {
+          pageId: workout.id, // Use the workout page ID as unique identifier
+          exerciseId,
+          exerciseName,
+          defaultSets: workout.sets || 0,
+          defaultReps: workout.reps || 0,
+        };
+      });
+
+      setCustomExercises(exercises);
+      setOriginalExercises(exercises);
+    } catch (error) {
+      console.error("Error loading workouts for day:", error);
+    }
+  };
 
   const loadAvailableExercises = async (templateId: string) => {
     try {
       const template = templates.find((t) => t.id === templateId);
+
       if (!template || template.bodyGroups.length === 0) {
         setAvailableExercises([]);
         return;
@@ -76,25 +117,70 @@ export function WorkoutEditModal({
 
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplate(templateId);
+    setDeletedExerciseIds([]);
+    setDeletedPageIds([]);
     const template = templates.find((t) => t.id === templateId);
     if (template) {
-      setCustomExercises(
-        template.exercises.map((ex) => ({
-          exerciseId: ex.exerciseId,
-          exerciseName: ex.exerciseName,
-          defaultSets: ex.defaultSets,
-          defaultReps: ex.defaultReps,
-        }))
-      );
+      const templateExercises = template.exercises.map((ex) => ({
+        exerciseId: ex.exerciseId,
+        exerciseName: ex.exerciseName,
+        defaultSets: ex.defaultSets,
+        defaultReps: ex.defaultReps,
+      }));
+      setCustomExercises(templateExercises);
+      setOriginalExercises(templateExercises);
       loadAvailableExercises(templateId);
     }
+  };
+
+  const handleExercisesChange = (exercises: CustomizableExercise[]) => {
+    // Track deleted exercises (only in edit mode)
+    if (!isCreateMode) {
+      // Track by pageId if available (existing workouts), otherwise by exerciseId (template-based)
+      const currentPageIds = new Set(exercises.map((ex) => ex.pageId).filter(Boolean));
+      const originalPageIds = new Set(originalExercises.map((ex) => ex.pageId).filter(Boolean));
+
+      // Find deleted workout entries by pageId
+      const deletedPages: string[] = [];
+      originalPageIds.forEach((pageId) => {
+        if (pageId && !currentPageIds.has(pageId)) {
+          deletedPages.push(pageId);
+        }
+      });
+
+      // Also track by exerciseId for exercises without pageId
+      const currentExIds = new Set(exercises.map((ex) => ex.exerciseId));
+      const originalExIds = new Set(originalExercises.filter(ex => !ex.pageId).map((ex) => ex.exerciseId));
+
+      const deletedExIds: string[] = [];
+      originalExIds.forEach((id) => {
+        if (!currentExIds.has(id)) {
+          deletedExIds.push(id);
+        }
+      });
+
+      setDeletedPageIds(deletedPages);
+      setDeletedExerciseIds(deletedExIds);
+    }
+
+    setCustomExercises(exercises);
   };
 
   const handleSave = async () => {
     if (!selectedTemplate) return;
     setSaving(true);
     try {
-      await onSave(selectedTemplate, customExercises);
+      // Delete workout entries by pageId first
+      for (const pageId of deletedPageIds) {
+        await fetch("/api/workouts/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pageId }),
+        });
+      }
+
+      // Then call the main save handler (which handles exerciseId deletions and creates/updates)
+      await onSave(selectedTemplate, customExercises, deletedExerciseIds);
       onClose();
     } catch (error) {
       console.error("Error saving workout:", error);
@@ -130,15 +216,12 @@ export function WorkoutEditModal({
               Select Workout Template
             </label>
             <select
+              key={`template-select-${selectedTemplate}`}
               value={selectedTemplate}
               onChange={(e) => handleTemplateChange(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
             >
-              {isCreateMode ? (
-                <option value="">Choose a template...</option>
-              ) : (
-                <option value={selectedTemplate}>{currentTemplate?.name}</option>
-              )}
+              {isCreateMode && <option value="">Choose a template...</option>}
               {templates.map((template) => (
                 <option key={template.id} value={template.id}>
                   {template.name}
@@ -156,7 +239,7 @@ export function WorkoutEditModal({
               <ExerciseCustomizer
                 exercises={customExercises}
                 availableExercises={availableExercises}
-                onExercisesChange={setCustomExercises}
+                onExercisesChange={handleExercisesChange}
                 showAddButton={true}
                 showExerciseList={true}
               />
