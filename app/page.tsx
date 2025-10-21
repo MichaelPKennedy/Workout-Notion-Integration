@@ -159,6 +159,8 @@ export default function Home() {
   const [movingToDate, setMovingToDate] = useState<string | null>(null);
   const [todayWorkoutLoading, setTodayWorkoutLoading] = useState(true);
   const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [showMoveConfirm, setShowMoveConfirm] = useState(false);
+  const [pendingMove, setPendingMove] = useState<{ fromDate: string; toDate: string; workoutName: string } | null>(null);
 
   useEffect(() => {
     fetchTemplates();
@@ -573,8 +575,27 @@ export default function Home() {
 
     // Only allow moving if source has a workout and destination doesn't
     if (fromDay?.template && !toDay?.template) {
-      handleMoveWorkout(fromDate, toDate);
+      // Show confirmation modal instead of moving immediately
+      setPendingMove({
+        fromDate,
+        toDate,
+        workoutName: fromDay.template.name,
+      });
+      setShowMoveConfirm(true);
     }
+  };
+
+  const handleConfirmMove = async () => {
+    if (pendingMove) {
+      setShowMoveConfirm(false);
+      await handleMoveWorkout(pendingMove.fromDate, pendingMove.toDate);
+      setPendingMove(null);
+    }
+  };
+
+  const handleCancelMove = () => {
+    setShowMoveConfirm(false);
+    setPendingMove(null);
   };
 
   // Configure sensors for both mouse and touch
@@ -807,6 +828,34 @@ export default function Home() {
         onSave={handleSaveEditedWorkout}
         onDelete={handleDeleteWorkout}
       />
+
+      {/* Move Confirmation Modal */}
+      {showMoveConfirm && pendingMove && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-3">Move Workout?</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to move <span className="font-semibold">{pendingMove.workoutName}</span> from{" "}
+              <span className="font-semibold">{new Date(pendingMove.fromDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span> to{" "}
+              <span className="font-semibold">{new Date(pendingMove.toDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelMove}
+                className="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 hover:bg-gray-100 font-semibold rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmMove}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+              >
+                Move Workout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
