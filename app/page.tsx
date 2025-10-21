@@ -4,12 +4,115 @@ import { useState, useEffect } from "react";
 import { WorkoutTemplate } from "@/types/workout";
 import { ExerciseCustomizer, CustomizableExercise } from "@/app/components/ExerciseCustomizer";
 import { WorkoutEditModal } from "@/app/components/WorkoutEditModal";
+import { DndContext, DragEndEvent, useDraggable, useDroppable, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 
 interface DayWorkout {
   day: string;
   date: string;
   template: WorkoutTemplate | null;
   completed: boolean;
+}
+
+interface DayCardProps {
+  dayWorkout: DayWorkout;
+  index: number;
+  onEdit: (date: string, template: WorkoutTemplate | null) => void;
+}
+
+function DayCard({ dayWorkout, index, onEdit }: DayCardProps) {
+  const hasWorkout = !!dayWorkout.template;
+
+  // Make it draggable if it has a workout
+  const { attributes: dragAttributes, listeners: dragListeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: dayWorkout.date,
+    disabled: !hasWorkout,
+  });
+
+  // Make it droppable if it doesn't have a workout
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: dayWorkout.date,
+    disabled: hasWorkout,
+  });
+
+  // Use the appropriate ref based on whether it's draggable or droppable
+  const setNodeRef = hasWorkout ? setDragRef : setDropRef;
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...(hasWorkout ? { ...dragAttributes, ...dragListeners } : {})}
+      onClick={(e) => {
+        // Only trigger edit if not dragging
+        if (!isDragging) {
+          onEdit(dayWorkout.date, dayWorkout.template);
+        }
+      }}
+      className={`rounded-lg p-4 text-center border-2 relative transition-all ${
+        hasWorkout ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+      } hover:shadow-lg ${
+        isDragging
+          ? "opacity-50 scale-95"
+          : isOver
+            ? "border-blue-500 bg-blue-100 scale-105"
+            : dayWorkout.completed
+              ? "border-green-500 bg-green-50"
+              : index === 0
+                ? "border-blue-500 bg-blue-50"
+                : "border-gray-200 bg-gray-50"
+      }`}
+      style={{
+        touchAction: hasWorkout ? 'none' : 'auto', // Prevent default touch actions when dragging
+      }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-semibold text-gray-700 flex-1">
+          {dayWorkout.day.split(" ")[0]}
+        </p>
+        {dayWorkout.completed && (
+          <svg
+            className="w-4 h-4 text-green-600 flex-shrink-0"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fillRule="evenodd"
+              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+              clipRule="evenodd"
+            />
+          </svg>
+        )}
+      </div>
+      <p className="text-xs text-gray-500 mb-3">
+        {dayWorkout.day.split(" ")[1]}
+      </p>
+      {dayWorkout.template ? (
+        <div>
+          <p
+            className={`text-sm font-medium mb-2 ${
+              dayWorkout.completed
+                ? "text-green-800"
+                : "text-gray-800"
+            }`}
+          >
+            {dayWorkout.template.name}
+          </p>
+          <p
+            className={`text-xs ${
+              dayWorkout.completed
+                ? "text-green-700"
+                : "text-gray-600"
+            }`}
+          >
+            {dayWorkout.template.exercises.length} exercises
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-gray-500">
+          {isOver ? "Drop here" : "No workout"}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function Home() {
@@ -343,6 +446,30 @@ export default function Home() {
     }
   };
 
+  const handleMoveWorkout = async (fromDate: string, toDate: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/workouts/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromDate, toDate }),
+      });
+
+      if (response.ok) {
+        setMessage("✅ Workout moved successfully");
+        await loadWeeklySchedule();
+      } else {
+        const data = await response.json();
+        setMessage(`❌ Error: ${data.error}`);
+      }
+    } catch (error) {
+      console.error("Error moving workout:", error);
+      setMessage("❌ Failed to move workout");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeleteWorkout = async (date: string) => {
     setLoading(true);
     try {
@@ -394,6 +521,41 @@ export default function Home() {
     // Reload schedule for the new week
     loadWeeklySchedule(firstDate.toISOString().split("T")[0]);
   };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const fromDate = active.id as string;
+    const toDate = over.id as string;
+
+    // Find the days
+    const fromDay = weeklySchedule.find(d => d.date === fromDate);
+    const toDay = weeklySchedule.find(d => d.date === toDate);
+
+    // Only allow moving if source has a workout and destination doesn't
+    if (fromDay?.template && !toDay?.template) {
+      handleMoveWorkout(fromDate, toDate);
+    }
+  };
+
+  // Configure sensors for both mouse and touch
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Allow 8px of movement before drag starts
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200, // 200ms delay before drag starts on touch
+        tolerance: 8,
+      },
+    })
+  );
 
   const selectedTemplateData = templates.find((t) => t.id === selectedTemplate);
 
@@ -523,67 +685,18 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
-            {weeklySchedule.map((dayWorkout, index) => (
-              <div
-                key={index}
-                onClick={() => handleEditWorkout(dayWorkout.date, dayWorkout.template)}
-                className={`rounded-lg p-4 text-center border-2 relative transition-all cursor-pointer hover:shadow-lg ${
-                  dayWorkout.completed
-                    ? "border-green-500 bg-green-50"
-                    : index === 0
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 bg-gray-50"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-semibold text-gray-700 flex-1">
-                    {dayWorkout.day.split(" ")[0]}
-                  </p>
-                  {dayWorkout.completed && (
-                    <svg
-                      className="w-4 h-4 text-green-600 flex-shrink-0"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500 mb-3">
-                  {dayWorkout.day.split(" ")[1]}
-                </p>
-                {dayWorkout.template ? (
-                  <div>
-                    <p
-                      className={`text-sm font-medium mb-2 ${
-                        dayWorkout.completed
-                          ? "text-green-800"
-                          : "text-gray-800"
-                      }`}
-                    >
-                      {dayWorkout.template.name}
-                    </p>
-                    <p
-                      className={`text-xs ${
-                        dayWorkout.completed
-                          ? "text-green-700"
-                          : "text-gray-600"
-                      }`}
-                    >
-                      {dayWorkout.template.exercises.length} exercises
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-xs text-gray-500">No workout</p>
-                )}
-              </div>
-            ))}
-          </div>
+          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+            <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+              {weeklySchedule.map((dayWorkout, index) => (
+                <DayCard
+                  key={dayWorkout.date}
+                  dayWorkout={dayWorkout}
+                  index={index}
+                  onEdit={handleEditWorkout}
+                />
+              ))}
+            </div>
+          </DndContext>
         </div>
 
 
