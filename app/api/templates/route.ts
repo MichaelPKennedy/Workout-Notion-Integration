@@ -13,6 +13,7 @@ interface WorkoutTemplate {
   id: string;
   name: string;
   exercises: TemplateExercise[];
+  bodyGroups: string[];
 }
 
 export async function GET() {
@@ -95,6 +96,8 @@ export async function GET() {
         const p = page as any;
         const templateId = p.id as string;
         const exercises = templateExercisesMap.get(templateId) || [];
+        const bodyGroups =
+          p.properties["Body Groups"]?.relation?.map((rel: any) => rel.id) || [];
 
         // Sort exercises by order
         exercises.sort((a, b) => a.order - b.order);
@@ -117,6 +120,7 @@ export async function GET() {
               order,
             })
           ),
+          bodyGroups,
         };
       }
     );

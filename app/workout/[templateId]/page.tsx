@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ExerciseCustomizer, CustomizableExercise } from "@/app/components/ExerciseCustomizer";
+
+interface AvailableExercise {
+  id: string;
+  name: string;
+  bodyGroupName?: string;
+}
 
 interface WorkoutEntry {
   id: string;
@@ -10,6 +17,7 @@ interface WorkoutEntry {
   sets: number;
   reps: number;
   maxWeight: number;
+  templateId?: string;
 }
 
 interface ExerciseProgress {
@@ -30,9 +38,11 @@ export default function WorkoutPage() {
 
   const [workoutName, setWorkoutName] = useState<string>("");
   const [exercises, setExercises] = useState<ExerciseProgress[]>([]);
+  const [availableExercises, setAvailableExercises] = useState<AvailableExercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [templateId_, setTemplateId] = useState<string>("");
 
   useEffect(() => {
     const loadData = async () => {
@@ -42,6 +52,35 @@ export default function WorkoutPage() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
+
+  const loadAvailableExercises = async (templateIdValue: string) => {
+    try {
+      // Fetch the body groups for this template
+      const bodyGroupsResponse = await fetch(
+        `/api/templates/body-groups?templateId=${templateIdValue}`
+      );
+      const { bodyGroupIds } = await bodyGroupsResponse.json();
+
+      if (bodyGroupIds.length === 0) {
+        setAvailableExercises([]);
+        return;
+      }
+
+      // Fetch exercises for these body groups
+      const exercisesResponse = await fetch("/api/exercises/by-body-groups", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ bodyGroupIds }),
+      });
+
+      const availableExercises = await exercisesResponse.json();
+      setAvailableExercises(availableExercises);
+    } catch (error) {
+      console.error("Error loading available exercises:", error);
+    }
+  };
 
   const loadWorkoutExercises = async () => {
     try {
@@ -61,6 +100,13 @@ export default function WorkoutPage() {
       const firstWorkout = workouts[0];
       const templateName = firstWorkout.name.split(" - ")[0] || "Workout";
       setWorkoutName(templateName);
+
+      // Extract template ID from the first workout's template relation
+      const templateId = firstWorkout.templateId;
+      if (templateId) {
+        setTemplateId(templateId);
+        await loadAvailableExercises(templateId);
+      }
 
       // Initialize exercises from the fetched workouts
       const initialExercises = workouts.map((workout) => {
@@ -147,6 +193,27 @@ export default function WorkoutPage() {
     setMessage("");
   };
 
+  const handleExercisesChange = (customizableExercises: CustomizableExercise[]) => {
+    // Convert CustomizableExercise to ExerciseProgress
+    const updatedExercises = customizableExercises.map((ex) => {
+      // Find existing exercise or create new one
+      const existing = exercises.find((e) => e.pageId === ex.pageId);
+      return {
+        pageId: ex.pageId || `new-${ex.exerciseId}`,
+        exerciseName: ex.exerciseName,
+        defaultSets: ex.defaultSets,
+        defaultReps: ex.defaultReps,
+        actualSets: existing?.actualSets ?? null,
+        actualReps: existing?.actualReps ?? null,
+        maxWeight: existing?.maxWeight ?? null,
+        completed: existing?.completed ?? false,
+      };
+    });
+
+    setExercises(updatedExercises);
+    saveProgress(updatedExercises);
+  };
+
   const saveProgress = (data: ExerciseProgress[]) => {
     localStorage.setItem("workoutProgress", JSON.stringify(data));
   };
@@ -157,8 +224,37 @@ export default function WorkoutPage() {
     setMessage("");
 
     try {
+      // Separate new exercises from existing ones
+      const newExercises = exercises.filter((ex) => ex.pageId.startsWith("new-"));
+      const existingExercises = exercises.filter((ex) => !ex.pageId.startsWith("new-"));
+
+      // Create new workout entries for newly added exercises
+      for (const exercise of newExercises) {
+        if (exercise.completed && exercise.actualSets && exercise.actualReps && exercise.maxWeight !== null) {
+          const createResponse = await fetch("/api/workouts/create", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              templateId: templateId_,
+              exerciseId: exercise.pageId.replace("new-", ""),
+              exerciseName: exercise.exerciseName,
+              date,
+              totalSets: exercise.actualSets,
+              totalReps: exercise.actualReps,
+              maxWeight: exercise.maxWeight,
+            }),
+          });
+
+          if (!createResponse.ok) {
+            console.error(`Failed to create new exercise entry for ${exercise.exerciseName}`);
+          }
+        }
+      }
+
       // Save each completed exercise to Notion using their page IDs
-      for (const exercise of exercises.filter((ex) => ex.completed)) {
+      for (const exercise of existingExercises.filter((ex) => ex.completed)) {
         const response = await fetch("/api/workouts/update", {
           method: "POST",
           headers: {
@@ -275,13 +371,32 @@ export default function WorkoutPage() {
           {exercises.map((exercise) => (
             <div
               key={exercise.pageId}
-              className={`rounded-xl p-6 transition-all duration-300 ${
+              className={`rounded-xl p-6 transition-all duration-300 relative ${
                 exercise.completed
                   ? "bg-green-50 border-2 border-green-500"
                   : "bg-white border-2 border-gray-200"
               }`}
             >
-              <div className="mb-4">
+              {/* Remove Button */}
+              <button
+                onClick={() => {
+                  const updated = exercises.filter((ex) => ex.pageId !== exercise.pageId);
+                  setExercises(updated);
+                  saveProgress(updated);
+                }}
+                className="absolute top-4 right-4 text-red-600 hover:text-red-800 hover:bg-red-50 p-1 rounded transition-colors"
+                title="Remove exercise"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+
+              <div className="mb-4 pr-8">
                 <h3
                   className={`text-lg font-semibold mb-2 ${
                     exercise.completed ? "text-green-700" : "text-gray-800"
@@ -326,7 +441,7 @@ export default function WorkoutPage() {
                           )
                         }
                         placeholder={`Default: ${exercise.defaultSets}`}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                       />
                     </div>
 
@@ -346,7 +461,7 @@ export default function WorkoutPage() {
                           )
                         }
                         placeholder={`Default: ${exercise.defaultReps}`}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                       />
                     </div>
 
@@ -367,7 +482,7 @@ export default function WorkoutPage() {
                           )
                         }
                         placeholder="0"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                       />
                     </div>
                   </div>
@@ -403,6 +518,23 @@ export default function WorkoutPage() {
               )}
             </div>
           ))}
+        </div>
+
+        {/* Add Exercise Button */}
+        <div className="bg-white rounded-2xl shadow-lg p-8 mb-8">
+          <ExerciseCustomizer
+            exercises={exercises.map((ex) => ({
+              pageId: ex.pageId,
+              exerciseId: ex.pageId.startsWith("new-") ? ex.pageId.replace("new-", "") : ex.pageId,
+              exerciseName: ex.exerciseName,
+              defaultSets: ex.defaultSets,
+              defaultReps: ex.defaultReps,
+            }))}
+            availableExercises={availableExercises}
+            onExercisesChange={handleExercisesChange}
+            showAddButton={true}
+            showExerciseList={false}
+          />
         </div>
 
         {/* Message Display */}

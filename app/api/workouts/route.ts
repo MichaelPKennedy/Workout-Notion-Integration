@@ -3,7 +3,7 @@ import { Client } from "@notionhq/client";
 
 export async function POST(request: Request) {
   try {
-    const { templateId, date } = await request.json();
+    const { templateId, date, customExercises } = await request.json();
 
     if (!templateId || !date) {
       return NextResponse.json(
@@ -67,43 +67,56 @@ export async function POST(request: Request) {
       dailyWorkoutId = existingDailyWorkout.results[0].id;
     }
 
-    // Fetch template exercises for this template
-    const templateExercisesResponse = await notion.databases.query({
-      database_id: TEMPLATE_EXERCISES_DB,
-      filter: {
-        property: "Template",
-        relation: {
-          contains: templateId,
-        },
-      },
-      sorts: [
-        {
-          property: "Order",
-          direction: "ascending",
-        },
-      ],
-    });
+    // Use custom exercises if provided, otherwise fetch from template
+    let exercisesToCreate: Array<{
+      exerciseId: string;
+      exerciseName: string;
+      defaultSets: number;
+      defaultReps: number;
+    }> = [];
 
-    // Create a workout entry for each exercise in the template
+    if (customExercises && customExercises.length > 0) {
+      // Use the custom exercises from the request
+      exercisesToCreate = customExercises;
+    } else {
+      // Fallback to template exercises
+      const templateExercisesResponse = await notion.databases.query({
+        database_id: TEMPLATE_EXERCISES_DB,
+        filter: {
+          property: "Template",
+          relation: {
+            contains: templateId,
+          },
+        },
+        sorts: [
+          {
+            property: "Order",
+            direction: "ascending",
+          },
+        ],
+      });
+
+      exercisesToCreate = (templateExercisesResponse.results as any[])
+        .map((page) => {
+          const exerciseId = page.properties.Exercise?.relation?.[0]?.id;
+          const fullName = page.properties.Name?.title?.[0]?.plain_text || "";
+          const defaultSets = page.properties["Default Sets"]?.number || 0;
+          const defaultReps = page.properties["Default Reps"]?.number || 0;
+
+          if (!exerciseId) return null;
+
+          const parts = fullName.split(" - ");
+          const exerciseName =
+            parts.length > 1 ? parts[parts.length - 1] : fullName;
+
+          return { exerciseId, exerciseName, defaultSets, defaultReps };
+        })
+        .filter((ex) => ex !== null);
+    }
+
+    // Create a workout entry for each exercise
     const createdWorkouts = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const page of templateExercisesResponse.results as any[]) {
-      const exerciseId = page.properties.Exercise?.relation?.[0]?.id;
-      const fullName = page.properties.Name?.title?.[0]?.plain_text || "";
-      const defaultSets = page.properties["Default Sets"]?.number || 0;
-      const defaultReps = page.properties["Default Reps"]?.number || 0;
-
-      if (!exerciseId) {
-        console.warn(`Exercise not found: ${fullName}`);
-        continue;
-      }
-
-      // Extract just the exercise name, removing the template prefix if it exists
-      // Format might be "Template Name - Exercise Name", so we extract after the last " - "
-      const parts = fullName.split(" - ");
-      const exerciseName =
-        parts.length > 1 ? parts[parts.length - 1] : fullName;
-
+    for (const { exerciseId, exerciseName, defaultSets, defaultReps } of exercisesToCreate) {
       const workoutEntry = await notion.pages.create({
         parent: { database_id: WEEKLY_WORKOUT_DB },
         properties: {
@@ -210,6 +223,9 @@ export async function GET(request: Request) {
       sets: page.properties["Total Sets"]?.number || 0,
       reps: page.properties["Total Reps"]?.number || 0,
       maxWeight: page.properties["Max Weight"]?.number || 0,
+      templateId:
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        page.properties.Template?.relation?.[0]?.id || undefined,
       exerciseIds:
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         page.properties.Exercises?.relation?.map((rel: any) => rel.id) || [],

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { WorkoutTemplate } from "@/types/workout";
+import { ExerciseCustomizer, CustomizableExercise } from "@/app/components/ExerciseCustomizer";
+import { WorkoutEditModal } from "@/app/components/WorkoutEditModal";
 
 interface DayWorkout {
   day: string;
@@ -21,6 +23,12 @@ export default function Home() {
   );
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [customExercises, setCustomExercises] = useState<CustomizableExercise[]>([]);
+  const [availableExercises, setAvailableExercises] = useState<
+    Array<{ id: string; name: string; bodyGroupName?: string }>
+  >([]);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingDate, setEditingDate] = useState<string>("");
 
   useEffect(() => {
     fetchTemplates();
@@ -48,9 +56,9 @@ export default function Home() {
     }
   };
 
-  const loadWeeklySchedule = async () => {
+  const loadWeeklySchedule = async (startDateParam?: string) => {
     try {
-      const today = new Date();
+      const today = startDateParam ? new Date(startDateParam) : new Date();
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + 6);
 
@@ -156,9 +164,56 @@ export default function Home() {
     }
   };
 
+  const loadAvailableExercises = async (templateId: string) => {
+    try {
+      const template = templates.find((t) => t.id === templateId);
+      if (!template || template.bodyGroups.length === 0) {
+        setAvailableExercises([]);
+        return;
+      }
+
+      const response = await fetch("/api/exercises/by-body-groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bodyGroupIds: template.bodyGroups }),
+      });
+
+      const exercises = await response.json();
+      setAvailableExercises(exercises);
+    } catch (error) {
+      console.error("Error loading available exercises:", error);
+    }
+  };
+
+  const handleTemplateChange = (templateId: string) => {
+    setSelectedTemplate(templateId);
+    setCustomExercises([]);
+
+    if (templateId) {
+      const template = templates.find((t) => t.id === templateId);
+      if (template) {
+        // Initialize with template exercises
+        setCustomExercises(
+          template.exercises.map((ex) => ({
+            exerciseId: ex.exerciseId,
+            exerciseName: ex.exerciseName,
+            defaultSets: ex.defaultSets,
+            defaultReps: ex.defaultReps,
+          }))
+        );
+        loadAvailableExercises(templateId);
+      }
+    }
+  };
+
   const handleCreateWorkout = async () => {
     if (!selectedTemplate) {
       setMessage("Please select a workout template");
+      return;
+    }
+
+    if (customExercises.length === 0) {
+      setMessage("Please add at least one exercise");
       return;
     }
 
@@ -174,6 +229,7 @@ export default function Home() {
         body: JSON.stringify({
           templateId: selectedTemplate,
           date: selectedDate,
+          customExercises,
         }),
       });
 
@@ -209,6 +265,57 @@ export default function Home() {
 
     // Redirect to workout page with today's date
     window.location.href = `/workout/${today}`;
+  };
+
+  const handleEditWorkout = (date: string, template: WorkoutTemplate | null) => {
+    setEditingDate(date);
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEditedWorkout = async (
+    templateId: string,
+    customExercises: CustomizableExercise[]
+  ) => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/workouts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          templateId,
+          date: editingDate,
+          customExercises,
+        }),
+      });
+
+      if (response.ok) {
+        setMessage("✅ Workout updated successfully");
+        // Reload the weekly schedule
+        await loadWeeklySchedule();
+      } else {
+        const data = await response.json();
+        setMessage(`❌ Error: ${data.error}`);
+      }
+    } catch (error) {
+      console.error("Error updating workout:", error);
+      setMessage("❌ Failed to update workout");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNavigateWeek = (offset: number) => {
+    // Get the first day of the current schedule
+    const firstDateStr = weeklySchedule[0]?.date;
+    if (!firstDateStr) return;
+
+    const firstDate = new Date(firstDateStr);
+    firstDate.setDate(firstDate.getDate() + offset * 7);
+
+    // Reload schedule for the new week
+    loadWeeklySchedule(firstDate.toISOString().split("T")[0]);
   };
 
   const selectedTemplateData = templates.find((t) => t.id === selectedTemplate);
@@ -289,12 +396,62 @@ export default function Home() {
 
         {/* Weekly Calendar */}
         <div className="bg-white rounded-2xl shadow-lg p-8">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Weekly Schedule</h2>
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => handleNavigateWeek(-1)}
+              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors hidden md:block"
+              title="Previous week"
+            >
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+
+            <h2 className="text-2xl font-bold text-gray-800 flex-1 text-center">
+              Weekly Schedule
+            </h2>
+
+            <button
+              onClick={() => handleNavigateWeek(1)}
+              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors hidden md:block"
+              title="Next week"
+            >
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
+          </div>
+
+          {/* Mobile Navigation Buttons */}
+          <div className="flex justify-between mb-4 md:hidden gap-2">
+            <button
+              onClick={() => handleNavigateWeek(-1)}
+              className="flex-1 px-3 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors font-medium"
+            >
+              ← Prev
+            </button>
+            <button
+              onClick={() => handleNavigateWeek(1)}
+              className="flex-1 px-3 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors font-medium"
+            >
+              Next →
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
             {weeklySchedule.map((dayWorkout, index) => (
               <div
                 key={index}
-                className={`rounded-lg p-4 text-center border-2 relative ${
+                onClick={() => handleEditWorkout(dayWorkout.date, dayWorkout.template)}
+                className={`rounded-lg p-4 text-center border-2 relative transition-all cursor-pointer hover:shadow-lg ${
                   dayWorkout.completed
                     ? "border-green-500 bg-green-50"
                     : index === 0
@@ -352,120 +509,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Create New Workout Section */}
-        <div className="bg-white rounded-2xl shadow-lg p-8">
-          <h2 className="text-2xl font-bold text-gray-800 mb-6">Create New Workout</h2>
-
-          <div className="space-y-6">
-            {/* Date Selection */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Workout Date
-              </label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Template Selection */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Workout Template
-              </label>
-              <select
-                value={selectedTemplate}
-                onChange={(e) => setSelectedTemplate(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              >
-                <option value="">Select a template...</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Template Preview */}
-            {selectedTemplateData && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-                <h3 className="font-semibold text-gray-800 mb-3">
-                  Template Preview: {selectedTemplateData.name}
-                </h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  The following exercises will be added with default values:
-                </p>
-                <div className="space-y-2">
-                  {selectedTemplateData.exercises.map((exercise, index) => (
-                    <div
-                      key={index}
-                      className="bg-white p-3 rounded-lg flex justify-between items-center"
-                    >
-                      <span className="font-medium text-gray-800">
-                        {exercise.exerciseName}
-                      </span>
-                      <div className="text-sm text-gray-600">
-                        {exercise.defaultSets} sets × {exercise.defaultReps}{" "}
-                        reps
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Create Button */}
-            <button
-              onClick={handleCreateWorkout}
-              disabled={loading || !selectedTemplate}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-4 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-2"
-            >
-              {loading ? (
-                <>
-                  <svg
-                    className="animate-spin h-5 w-5"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                  <span>Creating Workout...</span>
-                </>
-              ) : (
-                <span>Create Workout in Notion</span>
-              )}
-            </button>
-
-            {/* Message Display */}
-            {message && (
-              <div
-                className={`p-4 rounded-lg ${
-                  message.includes("✅")
-                    ? "bg-green-50 text-green-800 border border-green-200"
-                    : "bg-red-50 text-red-800 border border-red-200"
-                }`}
-              >
-                {message}
-              </div>
-            )}
-          </div>
-        </div>
 
         {/* Link to Notion */}
         <div className="text-center">
@@ -479,6 +522,16 @@ export default function Home() {
           </a>
         </div>
       </div>
+
+      {/* Workout Edit Modal */}
+      <WorkoutEditModal
+        isOpen={editModalOpen}
+        date={editingDate}
+        currentTemplate={weeklySchedule.find((d) => d.date === editingDate)?.template || null}
+        templates={templates}
+        onClose={() => setEditModalOpen(false)}
+        onSave={handleSaveEditedWorkout}
+      />
     </main>
   );
 }
