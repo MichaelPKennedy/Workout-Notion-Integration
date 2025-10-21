@@ -23,6 +23,7 @@ interface WorkoutEditModalProps {
   templates: WorkoutTemplate[];
   onClose: () => void;
   onSave: (templateId: string, customExercises: CustomizableExercise[], deletedExerciseIds?: string[]) => Promise<void>;
+  onDelete?: (date: string) => Promise<void>;
 }
 
 export function WorkoutEditModal({
@@ -32,6 +33,7 @@ export function WorkoutEditModal({
   templates,
   onClose,
   onSave,
+  onDelete,
 }: WorkoutEditModalProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [customExercises, setCustomExercises] = useState<CustomizableExercise[]>([]);
@@ -40,6 +42,7 @@ export function WorkoutEditModal({
   const [deletedExerciseIds, setDeletedExerciseIds] = useState<string[]>([]);
   const [deletedPageIds, setDeletedPageIds] = useState<string[]>([]);
   const [originalExercises, setOriginalExercises] = useState<CustomizableExercise[]>([]);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const isCreateMode = !currentTemplate;
 
   useEffect(() => {
@@ -189,6 +192,21 @@ export function WorkoutEditModal({
     }
   };
 
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (onDelete) {
+      setShowDeleteConfirm(false);
+      await onDelete(date);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteConfirm(false);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -248,6 +266,15 @@ export function WorkoutEditModal({
         </div>
 
         <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-6 flex gap-3">
+          {!isCreateMode && onDelete && (
+            <button
+              onClick={handleDeleteClick}
+              disabled={saving}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors"
+            >
+              Delete Workout
+            </button>
+          )}
           <button
             onClick={onClose}
             disabled={saving}
@@ -290,6 +317,32 @@ export function WorkoutEditModal({
           </button>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-3">Delete Workout?</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete this entire workout? This will remove all exercises for this day and cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelDelete}
+                className="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 hover:bg-gray-100 font-semibold rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors"
+              >
+                Delete Workout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

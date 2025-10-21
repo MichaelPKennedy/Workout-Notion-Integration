@@ -343,6 +343,46 @@ export default function Home() {
     }
   };
 
+  const handleDeleteWorkout = async (date: string) => {
+    setLoading(true);
+    try {
+      // Delete all workout entries for this date from Weekly Workout Plan
+      const workoutsResponse = await fetch(`/api/workouts?startDate=${date}&endDate=${date}`);
+      const workouts = await workoutsResponse.json();
+
+      for (const workout of workouts) {
+        await fetch("/api/workouts/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pageId: workout.id }),
+        });
+      }
+
+      // Delete the daily workout entry
+      const dailyResponse = await fetch(`/api/daily-workouts?startDate=${date}&endDate=${date}`);
+      const dailyWorkouts = await dailyResponse.json();
+
+      if (dailyWorkouts.length > 0) {
+        const dailyWorkoutId = dailyWorkouts[0].id;
+        // Archive the daily workout page
+        await fetch("/api/workouts/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pageId: dailyWorkoutId }),
+        });
+      }
+
+      setMessage("✅ Workout deleted successfully");
+      setEditModalOpen(false);
+      await loadWeeklySchedule();
+    } catch (error) {
+      console.error("Error deleting workout:", error);
+      setMessage("❌ Failed to delete workout");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleNavigateWeek = (offset: number) => {
     // Get the first day of the current schedule
     const firstDateStr = weeklySchedule[0]?.date;
@@ -568,6 +608,7 @@ export default function Home() {
         templates={templates}
         onClose={() => setEditModalOpen(false)}
         onSave={handleSaveEditedWorkout}
+        onDelete={handleDeleteWorkout}
       />
     </main>
   );
