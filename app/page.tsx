@@ -155,6 +155,7 @@ export default function Home() {
   useEffect(() => {
     fetchTemplates();
     checkInProgressWorkout();
+    loadTodayWorkout();
     loadWeeklySchedule().catch((err) =>
       console.error("Error loading weekly schedule:", err)
     );
@@ -178,15 +179,64 @@ export default function Home() {
     }
   };
 
-  const loadWeeklySchedule = async (startDateParam?: string) => {
-    setScheduleLoading(true);
+  const loadTodayWorkout = async () => {
     setTodayWorkoutLoading(true);
     try {
-      const today = startDateParam ? new Date(startDateParam) : new Date();
-      const endDate = new Date(today);
-      endDate.setDate(endDate.getDate() + 6);
+      const todayStr = new Date().toISOString().split("T")[0];
 
-      const startDateStr = today.toISOString().split("T")[0];
+      // Fetch today's workout
+      const workoutsResponse = await fetch(
+        `/api/workouts?startDate=${todayStr}&endDate=${todayStr}`
+      );
+      const workouts = await workoutsResponse.json();
+
+      if (workouts.length > 0) {
+        // Extract template name from the first workout
+        const parts = workouts[0].name.split(" - ");
+        const templateName = parts[0] || "Workout";
+
+        setTodayWorkout({
+          id: "",
+          name: templateName,
+          exercises: workouts.map(() => ({
+            exerciseId: "",
+            exerciseName: "",
+            defaultSets: 0,
+            defaultReps: 0,
+          })),
+          bodyGroups: [],
+        });
+      } else {
+        setTodayWorkout(null);
+      }
+      setTodayWorkoutLoading(false);
+    } catch (error) {
+      console.error("Error loading today's workout:", error);
+      setTodayWorkout(null);
+      setTodayWorkoutLoading(false);
+    }
+  };
+
+  const loadWeeklySchedule = async (startDateParam?: string) => {
+    setScheduleLoading(true);
+    try {
+      // Calculate the Monday of the week to display
+      let weekStart: Date;
+      if (startDateParam) {
+        weekStart = new Date(startDateParam);
+      } else {
+        // Get current date and find the Monday of this week
+        const now = new Date();
+        const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+        const daysFromMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // If Sunday, go back 6 days
+        weekStart = new Date(now);
+        weekStart.setDate(now.getDate() + daysFromMonday);
+      }
+
+      const endDate = new Date(weekStart);
+      endDate.setDate(weekStart.getDate() + 6); // Sunday
+
+      const startDateStr = weekStart.toISOString().split("T")[0];
       const endDateStr = endDate.toISOString().split("T")[0];
 
       // Fetch workouts from the Weekly Workout Plan database
@@ -239,8 +289,8 @@ export default function Home() {
       // Build the weekly schedule
       const schedule: DayWorkout[] = [];
       for (let i = 0; i < 7; i++) {
-        const date = new Date(today);
-        date.setDate(date.getDate() + i);
+        const date = new Date(weekStart);
+        date.setDate(weekStart.getDate() + i);
         const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
         const dateStr = date.toISOString().split("T")[0];
 
@@ -278,30 +328,13 @@ export default function Home() {
             : null,
           completed: isCompleted,
         });
-
-        // Set today's workout if it exists
-        if (i === 0 && templateName) {
-          setTodayWorkout({
-            id: "",
-            name: templateName,
-            exercises: dayWorkouts.map(() => ({
-              exerciseId: "",
-              exerciseName: "",
-              defaultSets: 0,
-              defaultReps: 0,
-            })),
-            bodyGroups: [],
-          });
-        }
       }
 
       setWeeklySchedule(schedule);
       setScheduleLoading(false);
-      setTodayWorkoutLoading(false);
     } catch (error) {
       console.error("Error loading weekly schedule:", error);
       setScheduleLoading(false);
-      setTodayWorkoutLoading(false);
     }
   };
 
@@ -544,50 +577,59 @@ export default function Home() {
             </div>
           ) : todayWorkout ? (
             <div className="space-y-4">
-              <div
-                className={`bg-gradient-to-r rounded-lg p-6 border-2 ${
-                  weeklySchedule[0]?.completed
-                    ? "from-green-50 to-emerald-50 border-green-500"
-                    : "from-blue-50 to-indigo-50 border-blue-200"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xl font-semibold text-gray-800">
-                    {todayWorkout.name}
-                  </h3>
-                  {weeklySchedule[0]?.completed && (
-                    <div className="flex items-center gap-2">
-                      <svg
-                        className="w-6 h-6 text-green-600"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      <span className="font-semibold text-green-600">Completed</span>
-                    </div>
-                  )}
-                </div>
-                <p className="text-gray-600 mb-4">
-                  {todayWorkout.exercises.length} exercises planned
-                </p>
-                {!weeklySchedule[0]?.completed && (
-                  <button
-                    onClick={handleStartWorkout}
-                    className={`px-6 py-3 rounded-lg font-semibold text-white transition-colors ${
-                      inProgressWorkout
-                        ? "bg-amber-500 hover:bg-amber-600"
-                        : "bg-blue-600 hover:bg-blue-700"
+              {(() => {
+                // Find today's entry in the weekly schedule
+                const todayStr = new Date().toISOString().split("T")[0];
+                const todayEntry = weeklySchedule.find(day => day.date === todayStr);
+                const isTodayCompleted = todayEntry?.completed || false;
+
+                return (
+                  <div
+                    className={`bg-gradient-to-r rounded-lg p-6 border-2 ${
+                      isTodayCompleted
+                        ? "from-green-50 to-emerald-50 border-green-500"
+                        : "from-blue-50 to-indigo-50 border-blue-200"
                     }`}
                   >
-                    {inProgressWorkout ? "Resume Workout" : "Start Workout"}
-                  </button>
-                )}
-              </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xl font-semibold text-gray-800">
+                        {todayWorkout.name}
+                      </h3>
+                      {isTodayCompleted && (
+                        <div className="flex items-center gap-2">
+                          <svg
+                            className="w-6 h-6 text-green-600"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                          <span className="font-semibold text-green-600">Completed</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-gray-600 mb-4">
+                      {todayWorkout.exercises.length} exercises planned
+                    </p>
+                    {!isTodayCompleted && (
+                      <button
+                        onClick={handleStartWorkout}
+                        className={`px-6 py-3 rounded-lg font-semibold text-white transition-colors ${
+                          inProgressWorkout
+                            ? "bg-amber-500 hover:bg-amber-600"
+                            : "bg-blue-600 hover:bg-blue-700"
+                        }`}
+                      >
+                        {inProgressWorkout ? "Resume Workout" : "Start Workout"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="bg-gray-50 rounded-lg p-6 text-center">
