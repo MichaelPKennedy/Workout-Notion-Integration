@@ -6,8 +6,22 @@ import { useRouter } from "next/navigation";
 export default function WorkoutCompletePage() {
   const router = useRouter();
   const [countdown, setCountdown] = useState(3);
+  const [personalBests, setPersonalBests] = useState<Array<{ exerciseName: string; weight: number }>>([]);
 
   useEffect(() => {
+    // Load personal bests from localStorage
+    const bestsData = localStorage.getItem("personalBestsAchieved");
+    if (bestsData) {
+      try {
+        const bests = JSON.parse(bestsData);
+        setPersonalBests(bests);
+        // Clear it after reading
+        localStorage.removeItem("personalBestsAchieved");
+      } catch (error) {
+        console.error("Error parsing personal bests:", error);
+      }
+    }
+
     const timer = setTimeout(() => {
       setInterval(() => {
         setCountdown((prev) => prev - 1);
@@ -57,6 +71,26 @@ export default function WorkoutCompletePage() {
         <p className="text-lg text-gray-600 mb-8">
           Great work! Your progress has been saved.
         </p>
+
+        {/* Personal Bests Achieved */}
+        {personalBests.length > 0 && (
+          <div className="mb-8 bg-white rounded-xl shadow-lg p-6 max-w-md mx-auto">
+            <h2 className="text-2xl font-bold text-blue-600 mb-4 flex items-center justify-center gap-2">
+              🎉 New Personal Bests!
+            </h2>
+            <div className="space-y-3">
+              {personalBests.map((best, index) => (
+                <div
+                  key={index}
+                  className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border-2 border-blue-200"
+                >
+                  <p className="font-semibold text-gray-800">{best.exerciseName}</p>
+                  <p className="text-2xl font-bold text-blue-600">{best.weight} lbs</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Countdown */}
         <p className="text-sm text-gray-500">

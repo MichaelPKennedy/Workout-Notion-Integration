@@ -48,6 +48,7 @@ export default function WorkoutPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [templateId_, setTemplateId] = useState<string>("");
+  const [personalBestsAchieved, setPersonalBestsAchieved] = useState<Array<{ exerciseName: string; weight: number }>>([]);
 
   useEffect(() => {
     loadWorkoutExercises();
@@ -208,6 +209,12 @@ export default function WorkoutPage() {
             }),
           });
           setMessage(`🎉 New personal best: ${exercise.maxWeight} lbs!`);
+
+          // Track this personal best for the completion page
+          setPersonalBestsAchieved(prev => [
+            ...prev,
+            { exerciseName: exercise.exerciseName, weight: exercise.maxWeight }
+          ]);
         } catch (error) {
           console.error("Failed to update personal best:", error);
         }
@@ -399,6 +406,11 @@ export default function WorkoutPage() {
 
       // Clear in-progress workout flag
       localStorage.removeItem("inProgressWorkout");
+
+      // Save personal bests achieved for the completion page
+      if (personalBestsAchieved.length > 0) {
+        localStorage.setItem("personalBestsAchieved", JSON.stringify(personalBestsAchieved));
+      }
 
       setMessage("Workout finished!");
       setTimeout(() => {
