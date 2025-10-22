@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { WorkoutTemplate } from "@/types/workout";
 import { CustomizableExercise } from "@/app/components/ExerciseCustomizer";
 import { WorkoutEditModal } from "@/app/components/WorkoutEditModal";
+import { ViewCompletedWorkoutModal } from "@/app/components/ViewCompletedWorkoutModal";
 import { DndContext, DragEndEvent, useDraggable, useDroppable, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 
 interface DayWorkout {
@@ -57,7 +58,7 @@ function DayCard({ dayWorkout, index, onEdit, isMovingTo }: DayCardProps) {
             ? "border-blue-500 bg-blue-100 scale-105"
             : dayWorkout.completed
               ? "border-green-500 bg-green-50"
-              : index === 0
+              : dayWorkout.date === new Date().toISOString().split("T")[0]
                 ? "border-blue-500 bg-blue-50"
                 : "border-gray-200 bg-gray-50"
       }`}
@@ -151,6 +152,8 @@ export default function Home() {
   const [scheduleLoading, setScheduleLoading] = useState(true);
   const [showMoveConfirm, setShowMoveConfirm] = useState(false);
   const [pendingMove, setPendingMove] = useState<{ fromDate: string; toDate: string; workoutName: string } | null>(null);
+  const [viewCompletedModalOpen, setViewCompletedModalOpen] = useState(false);
+  const [viewingDate, setViewingDate] = useState<string>("");
 
   useEffect(() => {
     fetchTemplates();
@@ -222,10 +225,12 @@ export default function Home() {
     try {
       // Calculate the Monday of the week to display
       let weekStart: Date;
+
       if (startDateParam) {
+        // If a date is provided from navigation, use it directly (should already be a Monday)
         weekStart = new Date(startDateParam);
       } else {
-        // Get current date and find the Monday of this week
+        // For initial load, find the Monday of the current week
         const now = new Date();
         const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
         const daysFromMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // If Sunday, go back 6 days
@@ -356,8 +361,17 @@ export default function Home() {
   };
 
   const handleEditWorkout = (date: string) => {
-    setEditingDate(date);
-    setEditModalOpen(true);
+    // Check if this workout is completed
+    const dayWorkout = weeklySchedule.find(d => d.date === date);
+    if (dayWorkout?.completed) {
+      // Open view completed modal instead
+      setViewingDate(date);
+      setViewCompletedModalOpen(true);
+    } else {
+      // Open edit modal
+      setEditingDate(date);
+      setEditModalOpen(true);
+    }
   };
 
   const handleSaveEditedWorkout = async (
@@ -470,12 +484,16 @@ export default function Home() {
   };
 
   const handleNavigateWeek = (offset: number) => {
-    // Get the first day of the current schedule
+    // Get the first day of the current schedule (should be Monday)
     const firstDateStr = weeklySchedule[0]?.date;
     if (!firstDateStr) return;
 
+    // Calculate the next/previous Monday
     const firstDate = new Date(firstDateStr);
     firstDate.setDate(firstDate.getDate() + offset * 7);
+
+    // Set loading state immediately to prevent showing stale data
+    setScheduleLoading(true);
 
     // Reload schedule for the new week
     loadWeeklySchedule(firstDate.toISOString().split("T")[0]);
@@ -756,6 +774,13 @@ export default function Home() {
         onClose={() => setEditModalOpen(false)}
         onSave={handleSaveEditedWorkout}
         onDelete={handleDeleteWorkout}
+      />
+
+      {/* View Completed Workout Modal */}
+      <ViewCompletedWorkoutModal
+        isOpen={viewCompletedModalOpen}
+        date={viewingDate}
+        onClose={() => setViewCompletedModalOpen(false)}
       />
 
       {/* Move Confirmation Modal */}
