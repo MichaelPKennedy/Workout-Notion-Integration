@@ -34,6 +34,7 @@ export function ViewCompletedWorkoutModal({
     if (isOpen && date) {
       loadWorkoutData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, date]);
 
   const loadWorkoutData = async () => {

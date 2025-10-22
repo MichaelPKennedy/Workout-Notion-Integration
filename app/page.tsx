@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { DateTime } from "luxon";
 import { WorkoutTemplate } from "@/types/workout";
 import { CustomizableExercise } from "@/app/components/ExerciseCustomizer";
 import { WorkoutEditModal } from "@/app/components/WorkoutEditModal";
@@ -16,12 +17,11 @@ interface DayWorkout {
 
 interface DayCardProps {
   dayWorkout: DayWorkout;
-  index: number;
   onEdit: (date: string) => void;
   isMovingTo?: boolean;
 }
 
-function DayCard({ dayWorkout, index, onEdit, isMovingTo }: DayCardProps) {
+function DayCard({ dayWorkout, onEdit, isMovingTo }: DayCardProps) {
   const hasWorkout = !!dayWorkout.template;
 
   // Make it draggable if it has a workout
@@ -58,7 +58,7 @@ function DayCard({ dayWorkout, index, onEdit, isMovingTo }: DayCardProps) {
             ? "border-blue-500 bg-blue-100 scale-105"
             : dayWorkout.completed
               ? "border-green-500 bg-green-50"
-              : dayWorkout.date === new Date().toISOString().split("T")[0]
+              : dayWorkout.date === DateTime.now().toISODate()
                 ? "border-blue-500 bg-blue-50"
                 : "border-gray-200 bg-gray-50"
       }`}
@@ -185,7 +185,7 @@ export default function Home() {
   const loadTodayWorkout = async () => {
     setTodayWorkoutLoading(true);
     try {
-      const todayStr = new Date().toISOString().split("T")[0];
+      const todayStr = DateTime.now().toISODate()!;
 
       // Fetch today's workout
       const workoutsResponse = await fetch(
@@ -224,25 +224,20 @@ export default function Home() {
     setScheduleLoading(true);
     try {
       // Calculate the Monday of the week to display
-      let weekStart: Date;
+      let monday: DateTime;
 
       if (startDateParam) {
         // If a date is provided from navigation, use it directly (should already be a Monday)
-        weekStart = new Date(startDateParam);
+        monday = DateTime.fromISO(startDateParam);
       } else {
         // For initial load, find the Monday of the current week
-        const now = new Date();
-        const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-        const daysFromMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // If Sunday, go back 6 days
-        weekStart = new Date(now);
-        weekStart.setDate(now.getDate() + daysFromMonday);
+        monday = DateTime.now().startOf('week'); // Luxon's startOf('week') gives Monday
       }
 
-      const endDate = new Date(weekStart);
-      endDate.setDate(weekStart.getDate() + 6); // Sunday
+      const sunday = monday.plus({ days: 6 });
 
-      const startDateStr = weekStart.toISOString().split("T")[0];
-      const endDateStr = endDate.toISOString().split("T")[0];
+      const startDateStr = monday.toISODate();
+      const endDateStr = sunday.toISODate();
 
       // Fetch workouts from the Weekly Workout Plan database
       const workoutsResponse = await fetch(
@@ -294,10 +289,9 @@ export default function Home() {
       // Build the weekly schedule
       const schedule: DayWorkout[] = [];
       for (let i = 0; i < 7; i++) {
-        const date = new Date(weekStart);
-        date.setDate(weekStart.getDate() + i);
-        const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
-        const dateStr = date.toISOString().split("T")[0];
+        const date = monday.plus({ days: i });
+        const dayName = date.toFormat('ccc'); // 'ccc' gives short weekday name (Mon, Tue, etc.)
+        const dateStr = date.toISODate()!; // toISODate returns string | null, we know it's not null
 
         // Get workouts for this day
         const dayWorkouts = workoutsByDate[dateStr] || [];
@@ -344,7 +338,7 @@ export default function Home() {
   };
 
   const handleStartWorkout = () => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = DateTime.now().toISODate()!;
 
     // Clear any existing workout progress
     localStorage.removeItem("workoutProgress");
@@ -353,7 +347,7 @@ export default function Home() {
     // Mark this as in-progress
     localStorage.setItem("inProgressWorkout", JSON.stringify({
       date: today,
-      startTime: new Date().toISOString(),
+      startTime: DateTime.now().toISO(),
     }));
 
     // Redirect to workout page with today's date
@@ -488,15 +482,15 @@ export default function Home() {
     const firstDateStr = weeklySchedule[0]?.date;
     if (!firstDateStr) return;
 
-    // Calculate the next/previous Monday
-    const firstDate = new Date(firstDateStr);
-    firstDate.setDate(firstDate.getDate() + offset * 7);
+    // Calculate the next/previous Monday using Luxon
+    const currentMonday = DateTime.fromISO(firstDateStr);
+    const nextMonday = currentMonday.plus({ weeks: offset });
 
     // Set loading state immediately to prevent showing stale data
     setScheduleLoading(true);
 
     // Reload schedule for the new week
-    loadWeeklySchedule(firstDate.toISOString().split("T")[0]);
+    loadWeeklySchedule(nextMonday.toISODate()!);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -597,7 +591,7 @@ export default function Home() {
             <div className="space-y-4">
               {(() => {
                 // Find today's entry in the weekly schedule
-                const todayStr = new Date().toISOString().split("T")[0];
+                const todayStr = DateTime.now().toISODate();
                 const todayEntry = weeklySchedule.find(day => day.date === todayStr);
                 const isTodayCompleted = todayEntry?.completed || false;
 
@@ -737,11 +731,10 @@ export default function Home() {
           ) : (
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
               <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
-                {weeklySchedule.map((dayWorkout, index) => (
+                {weeklySchedule.map((dayWorkout) => (
                   <DayCard
                     key={dayWorkout.date}
                     dayWorkout={dayWorkout}
-                    index={index}
                     onEdit={handleEditWorkout}
                     isMovingTo={movingToDate === dayWorkout.date}
                   />
@@ -790,8 +783,8 @@ export default function Home() {
             <h3 className="text-xl font-bold text-gray-900 mb-3">Move Workout?</h3>
             <p className="text-gray-600 mb-6">
               Are you sure you want to move <span className="font-semibold">{pendingMove.workoutName}</span> from{" "}
-              <span className="font-semibold">{new Date(pendingMove.fromDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span> to{" "}
-              <span className="font-semibold">{new Date(pendingMove.toDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>?
+              <span className="font-semibold">{DateTime.fromISO(pendingMove.fromDate).toFormat('ccc, MMM d')}</span> to{" "}
+              <span className="font-semibold">{DateTime.fromISO(pendingMove.toDate).toFormat('ccc, MMM d')}</span>?
             </p>
             <div className="flex gap-3">
               <button
