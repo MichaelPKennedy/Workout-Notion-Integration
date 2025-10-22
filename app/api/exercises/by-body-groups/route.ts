@@ -51,6 +51,7 @@ export async function POST(request: Request) {
           name: exerciseName,
           bodyGroupIds: bodyGroupIds_,
           bodyGroupName,
+          best: page.properties.Best?.number || 0,
         };
       })
       // Filter exercises that belong to any of the requested body groups

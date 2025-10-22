@@ -8,6 +8,7 @@ interface AvailableExercise {
   id: string;
   name: string;
   bodyGroupName?: string;
+  best?: number;
 }
 
 interface WorkoutEntry {
@@ -19,10 +20,12 @@ interface WorkoutEntry {
   maxWeight: number;
   completed: boolean;
   templateId?: string;
+  exerciseIds: string[];
 }
 
 interface ExerciseProgress {
   pageId: string;
+  exerciseId: string;
   exerciseName: string;
   defaultSets: number;
   defaultReps: number;
@@ -30,6 +33,7 @@ interface ExerciseProgress {
   actualReps: number | null;
   maxWeight: number | null;
   completed: boolean;
+  personalBest: number;
 }
 
 export default function WorkoutPage() {
@@ -105,14 +109,35 @@ export default function WorkoutPage() {
         await loadAvailableExercises(templateId);
       }
 
+      // Fetch personal bests for all exercises
+      const exerciseIds = workouts.map(w => w.exerciseIds[0]).filter(Boolean);
+      let exerciseBests: { [key: string]: number } = {};
+
+      if (exerciseIds.length > 0) {
+        try {
+          const bestsResponse = await fetch("/api/exercises/best", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ exerciseIds }),
+          });
+          if (bestsResponse.ok) {
+            exerciseBests = await bestsResponse.json();
+          }
+        } catch (error) {
+          console.error("Failed to fetch personal bests:", error);
+        }
+      }
+
       // Initialize exercises from the fetched workouts
       const initialExercises = workouts.map((workout) => {
         // Extract exercise name (everything after " - ")
         const parts = workout.name.split(" - ");
         const exerciseName = parts.slice(1).join(" - ") || workout.name;
+        const exerciseId = workout.exerciseIds[0] || '';
 
         return {
           pageId: workout.id,
+          exerciseId,
           exerciseName,
           defaultSets: workout.sets,
           defaultReps: workout.reps,
@@ -120,6 +145,7 @@ export default function WorkoutPage() {
           actualReps: workout.reps > 0 ? workout.reps : null,
           maxWeight: workout.maxWeight > 0 ? workout.maxWeight : null,
           completed: workout.completed,
+          personalBest: exerciseBests[exerciseId] || 0,
         };
       });
 
@@ -165,6 +191,28 @@ export default function WorkoutPage() {
     setMessage("");
 
     try {
+      // Check if this is a new personal best
+      const isNewBest = exercise.maxWeight > exercise.personalBest;
+      let newBestValue = exercise.personalBest;
+
+      if (isNewBest) {
+        newBestValue = exercise.maxWeight;
+        // Update personal best in the exercises database
+        try {
+          await fetch("/api/exercises/update-best", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              exerciseId: exercise.exerciseId,
+              newBest: exercise.maxWeight,
+            }),
+          });
+          setMessage(`🎉 New personal best: ${exercise.maxWeight} lbs!`);
+        } catch (error) {
+          console.error("Failed to update personal best:", error);
+        }
+      }
+
       // Save to database immediately
       if (pageId.startsWith("new-")) {
         // Create new workout entry
@@ -186,7 +234,7 @@ export default function WorkoutPage() {
           const data = await response.json();
           // Update the pageId with the actual ID from the database
           const updated = exercises.map((ex) =>
-            ex.pageId === pageId ? { ...ex, pageId: data.workoutId, completed: true } : ex
+            ex.pageId === pageId ? { ...ex, pageId: data.workoutId, completed: true, personalBest: newBestValue } : ex
           );
 
           // Move completed to bottom
@@ -215,7 +263,7 @@ export default function WorkoutPage() {
         if (response.ok) {
           // Mark as completed
           const updated = exercises.map((ex) =>
-            ex.pageId === pageId ? { ...ex, completed: true } : ex
+            ex.pageId === pageId ? { ...ex, completed: true, personalBest: newBestValue } : ex
           );
 
           // Move completed to bottom
@@ -305,8 +353,13 @@ export default function WorkoutPage() {
       const tempId = `new-${ex.exerciseId}`;
       const realPageId = exerciseIdMap.get(tempId) || ex.pageId || tempId;
 
+      // Get personal best from availableExercises or existing exercise
+      const availableExercise = availableExercises.find(ae => ae.id === ex.exerciseId);
+      const personalBest = existing?.personalBest ?? availableExercise?.best ?? 0;
+
       return {
         pageId: realPageId,
+        exerciseId: ex.exerciseId,
         exerciseName: ex.exerciseName,
         defaultSets: ex.defaultSets,
         defaultReps: ex.defaultReps,
@@ -314,6 +367,7 @@ export default function WorkoutPage() {
         actualReps: existing?.actualReps ?? null,
         maxWeight: existing?.maxWeight ?? null,
         completed: existing?.completed ?? false,
+        personalBest,
       };
     });
 
@@ -463,12 +517,17 @@ export default function WorkoutPage() {
 
               <div className="mb-4 pr-8">
                 <h3
-                  className={`text-lg font-semibold mb-2 ${
+                  className={`text-lg font-semibold ${
                     exercise.completed ? "text-green-700" : "text-gray-800"
                   }`}
                 >
                   {exercise.exerciseName}
                 </h3>
+                {exercise.personalBest > 0 && (
+                  <p className="text-sm text-blue-600 font-medium mt-1">
+                    Personal Best: {exercise.personalBest} lbs
+                  </p>
+                )}
                 {exercise.completed && (
                   <div className="flex items-center gap-2 mb-3">
                     <svg
