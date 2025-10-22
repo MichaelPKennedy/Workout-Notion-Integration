@@ -3,7 +3,7 @@ import { Client } from "@notionhq/client";
 
 export async function POST(request: Request) {
   try {
-    const { pageId, totalSets, totalReps, maxWeight } = await request.json();
+    const { pageId, totalSets, totalReps, maxWeight, completed } = await request.json();
 
     if (!pageId) {
       return NextResponse.json(
@@ -17,21 +17,29 @@ export async function POST(request: Request) {
       auth: process.env.NOTION_API_KEY,
     });
 
+    // Build properties object dynamically
+    const properties: any = {};
+
+    if (totalSets !== undefined) {
+      properties["Total Sets"] = { number: totalSets };
+    }
+
+    if (totalReps !== undefined) {
+      properties["Total Reps"] = { number: totalReps };
+    }
+
+    if (maxWeight !== undefined) {
+      properties["Max Weight"] = { number: maxWeight || 0 };
+    }
+
+    if (completed !== undefined) {
+      properties["Completed"] = { checkbox: completed };
+    }
+
     // Update the page with actual values
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await notion.pages.update({
       page_id: pageId,
-      properties: {
-        "Total Sets": {
-          number: totalSets,
-        },
-        "Total Reps": {
-          number: totalReps,
-        },
-        "Max Weight": {
-          number: maxWeight || 0,
-        },
-      },
+      properties,
     });
 
     return NextResponse.json({

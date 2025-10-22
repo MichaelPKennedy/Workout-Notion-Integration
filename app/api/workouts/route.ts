@@ -226,6 +226,7 @@ export async function GET(request: Request) {
       sets: page.properties["Total Sets"]?.number || 0,
       reps: page.properties["Total Reps"]?.number || 0,
       maxWeight: page.properties["Max Weight"]?.number || 0,
+      completed: page.properties.Completed?.checkbox || false,
       templateId:
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         page.properties["Workout Template"]?.relation?.[0]?.id || undefined,

@@ -17,6 +17,7 @@ interface WorkoutEntry {
   sets: number;
   reps: number;
   maxWeight: number;
+  completed: boolean;
   templateId?: string;
 }
 
@@ -38,7 +39,6 @@ export default function WorkoutPage() {
 
   const [workoutName, setWorkoutName] = useState<string>("");
   const [exercises, setExercises] = useState<ExerciseProgress[]>([]);
-  const [originalExercises, setOriginalExercises] = useState<ExerciseProgress[]>([]);
   const [availableExercises, setAvailableExercises] = useState<AvailableExercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,11 +46,7 @@ export default function WorkoutPage() {
   const [templateId_, setTemplateId] = useState<string>("");
 
   useEffect(() => {
-    const loadData = async () => {
-      await loadWorkoutExercises();
-      loadWorkoutProgress();
-    };
-    loadData();
+    loadWorkoutExercises();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
@@ -120,27 +116,20 @@ export default function WorkoutPage() {
           exerciseName,
           defaultSets: workout.sets,
           defaultReps: workout.reps,
-          actualSets: null,
-          actualReps: null,
-          maxWeight: null,
-          completed: false,
+          actualSets: workout.sets > 0 ? workout.sets : null,
+          actualReps: workout.reps > 0 ? workout.reps : null,
+          maxWeight: workout.maxWeight > 0 ? workout.maxWeight : null,
+          completed: workout.completed,
         };
       });
 
-      // Load saved progress if exists
-      const savedProgress = localStorage.getItem("workoutProgress");
-      if (savedProgress) {
-        try {
-          setExercises(JSON.parse(savedProgress));
-        } catch {
-          setExercises(initialExercises);
-        }
-      } else {
-        setExercises(initialExercises);
-      }
+      // Sort exercises: incomplete first, completed last
+      const sortedExercises = [...initialExercises].sort((a, b) => {
+        if (a.completed === b.completed) return 0;
+        return a.completed ? 1 : -1;
+      });
 
-      // Store original exercises for deletion tracking
-      setOriginalExercises(initialExercises);
+      setExercises(sortedExercises);
 
       setLoading(false);
     } catch (error) {
@@ -150,16 +139,6 @@ export default function WorkoutPage() {
     }
   };
 
-  const loadWorkoutProgress = () => {
-    const savedProgress = localStorage.getItem("workoutProgress");
-    if (savedProgress) {
-      try {
-        setExercises(JSON.parse(savedProgress));
-      } catch (e) {
-        console.error("Error loading progress:", e);
-      }
-    }
-  };
 
   const updateExercise = (
     pageId: string,
@@ -173,7 +152,7 @@ export default function WorkoutPage() {
     );
   };
 
-  const completeExercise = (pageId: string) => {
+  const completeExercise = async (pageId: string) => {
     const exercise = exercises.find((ex) => ex.pageId === pageId);
     if (!exercise) return;
 
@@ -182,28 +161,152 @@ export default function WorkoutPage() {
       return;
     }
 
-    // Mark as completed
-    const updated = exercises.map((ex) =>
-      ex.pageId === pageId ? { ...ex, completed: true } : ex
-    );
-
-    // Move completed to bottom
-    const incomplete = updated.filter((ex) => !ex.completed);
-    const completed = updated.filter((ex) => ex.completed);
-    const reordered = [...incomplete, ...completed];
-
-    setExercises(reordered);
-    saveProgress(reordered);
+    setSaving(true);
     setMessage("");
+
+    try {
+      // Save to database immediately
+      if (pageId.startsWith("new-")) {
+        // Create new workout entry
+        const response = await fetch("/api/workouts/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            templateId: templateId_,
+            exerciseId: pageId.replace("new-", ""),
+            exerciseName: exercise.exerciseName,
+            date,
+            totalSets: exercise.actualSets,
+            totalReps: exercise.actualReps,
+            maxWeight: exercise.maxWeight,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // Update the pageId with the actual ID from the database
+          const updated = exercises.map((ex) =>
+            ex.pageId === pageId ? { ...ex, pageId: data.workoutId, completed: true } : ex
+          );
+
+          // Move completed to bottom
+          const incomplete = updated.filter((ex) => !ex.completed);
+          const completedExercises = updated.filter((ex) => ex.completed);
+          const reordered = [...incomplete, ...completedExercises];
+
+          setExercises(reordered);
+        } else {
+          setMessage("Failed to save exercise");
+        }
+      } else {
+        // Update existing workout entry
+        const response = await fetch("/api/workouts/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pageId: exercise.pageId,
+            totalSets: exercise.actualSets,
+            totalReps: exercise.actualReps,
+            maxWeight: exercise.maxWeight,
+            completed: true,
+          }),
+        });
+
+        if (response.ok) {
+          // Mark as completed
+          const updated = exercises.map((ex) =>
+            ex.pageId === pageId ? { ...ex, completed: true } : ex
+          );
+
+          // Move completed to bottom
+          const incomplete = updated.filter((ex) => !ex.completed);
+          const completedExercises = updated.filter((ex) => ex.completed);
+          const reordered = [...incomplete, ...completedExercises];
+
+          setExercises(reordered);
+        } else {
+          setMessage("Failed to save exercise");
+        }
+      }
+    } catch (error) {
+      console.error("Error completing exercise:", error);
+      setMessage("Error saving exercise");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleExercisesChange = (customizableExercises: CustomizableExercise[]) => {
+  const handleExercisesChange = async (customizableExercises: CustomizableExercise[]) => {
+    // Find deleted exercises
+    const currentPageIds = new Set(customizableExercises.map((ex) => ex.pageId || `new-${ex.exerciseId}`));
+    const deletedExercises = exercises.filter((ex) => !currentPageIds.has(ex.pageId));
+
+    // Delete from database
+    for (const exercise of deletedExercises) {
+      if (!exercise.pageId.startsWith("new-")) {
+        try {
+          await fetch("/api/workouts/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date,
+              pageId: exercise.pageId,
+            }),
+          });
+        } catch (error) {
+          console.error("Error deleting exercise:", error);
+        }
+      }
+    }
+
+    // Find newly added exercises
+    const existingPageIds = new Set(exercises.map(ex => ex.pageId));
+    const newExercises = customizableExercises.filter(ex =>
+      !ex.pageId || !existingPageIds.has(ex.pageId)
+    );
+
+    // Create new exercises in database immediately
+    const exerciseIdMap = new Map<string, string>(); // Maps temp IDs to real page IDs
+
+    for (const newEx of newExercises) {
+      const tempId = `new-${newEx.exerciseId}`;
+      try {
+        const response = await fetch("/api/workouts/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            templateId: templateId_,
+            exerciseId: newEx.exerciseId,
+            exerciseName: newEx.exerciseName,
+            date,
+            totalSets: newEx.defaultSets,
+            totalReps: newEx.defaultReps,
+            maxWeight: 0,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          exerciseIdMap.set(tempId, data.workoutId);
+        } else {
+          console.error(`Failed to create exercise: ${newEx.exerciseName}`);
+        }
+      } catch (error) {
+        console.error("Error creating exercise:", error);
+      }
+    }
+
     // Convert CustomizableExercise to ExerciseProgress
     const updatedExercises = customizableExercises.map((ex) => {
-      // Find existing exercise or create new one
-      const existing = exercises.find((e) => e.pageId === ex.pageId);
+      // Find existing exercise
+      const existing = exercises.find((e) => e.pageId === ex.pageId || e.pageId === `new-${ex.exerciseId}`);
+
+      // Get the real page ID if this was a newly created exercise
+      const tempId = `new-${ex.exerciseId}`;
+      const realPageId = exerciseIdMap.get(tempId) || ex.pageId || tempId;
+
       return {
-        pageId: ex.pageId || `new-${ex.exerciseId}`,
+        pageId: realPageId,
         exerciseName: ex.exerciseName,
         defaultSets: ex.defaultSets,
         defaultReps: ex.defaultReps,
@@ -215,11 +318,6 @@ export default function WorkoutPage() {
     });
 
     setExercises(updatedExercises);
-    saveProgress(updatedExercises);
-  };
-
-  const saveProgress = (data: ExerciseProgress[]) => {
-    localStorage.setItem("workoutProgress", JSON.stringify(data));
   };
 
 
@@ -228,76 +326,8 @@ export default function WorkoutPage() {
     setMessage("");
 
     try {
-      // Find deleted exercises (original exercises not in current list)
-      const currentPageIds = new Set(exercises.map((ex) => ex.pageId));
-      const deletedExercises = originalExercises.filter((ex) => !currentPageIds.has(ex.pageId));
-
-      // Delete removed exercises from database
-      for (const exercise of deletedExercises) {
-        // We need to get the exercise ID from the workout entry
-        // The pageId is the workout page ID in the Weekly Workout Plan database
-        await fetch("/api/workouts/delete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            date,
-            pageId: exercise.pageId,
-          }),
-        });
-      }
-
-      // Separate new exercises from existing ones
-      const newExercises = exercises.filter((ex) => ex.pageId.startsWith("new-"));
-      const existingExercises = exercises.filter((ex) => !ex.pageId.startsWith("new-"));
-
-      // Create new workout entries for newly added exercises
-      for (const exercise of newExercises) {
-        if (exercise.completed && exercise.actualSets && exercise.actualReps && exercise.maxWeight !== null) {
-          const createResponse = await fetch("/api/workouts/create", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              templateId: templateId_,
-              exerciseId: exercise.pageId.replace("new-", ""),
-              exerciseName: exercise.exerciseName,
-              date,
-              totalSets: exercise.actualSets,
-              totalReps: exercise.actualReps,
-              maxWeight: exercise.maxWeight,
-            }),
-          });
-
-          if (!createResponse.ok) {
-            console.error(`Failed to create new exercise entry for ${exercise.exerciseName}`);
-          }
-        }
-      }
-
-      // Save each completed exercise to Notion using their page IDs
-      for (const exercise of existingExercises.filter((ex) => ex.completed)) {
-        const response = await fetch("/api/workouts/update", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            pageId: exercise.pageId,
-            totalSets: exercise.actualSets,
-            totalReps: exercise.actualReps,
-            maxWeight: exercise.maxWeight,
-          }),
-        });
-
-        if (!response.ok) {
-          console.error(`Failed to save ${exercise.exerciseName}`);
-        }
-      }
-
-      // Mark the daily workout as completed
+      // All exercise data is already saved to the database in real-time
+      // We just need to mark the daily workout as completed
       const dailyUpdateResponse = await fetch("/api/daily-workouts/update", {
         method: "POST",
         headers: {
@@ -313,11 +343,10 @@ export default function WorkoutPage() {
         console.error("Failed to mark daily workout as completed");
       }
 
-      // Clear local storage
-      localStorage.removeItem("workoutProgress");
+      // Clear in-progress workout flag
       localStorage.removeItem("inProgressWorkout");
 
-      setMessage("Workout finished! Progress saved to Notion.");
+      setMessage("Workout finished!");
       setTimeout(() => {
         router.push("/workout-complete");
       }, 500);
@@ -330,8 +359,6 @@ export default function WorkoutPage() {
   };
 
   const handleBackHome = () => {
-    // Save progress before leaving
-    saveProgress(exercises);
     router.push("/");
   };
 
@@ -403,10 +430,24 @@ export default function WorkoutPage() {
             >
               {/* Remove Button */}
               <button
-                onClick={() => {
+                onClick={async () => {
+                  // Delete from database if it's an existing exercise
+                  if (!exercise.pageId.startsWith("new-")) {
+                    try {
+                      await fetch("/api/workouts/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          date,
+                          pageId: exercise.pageId,
+                        }),
+                      });
+                    } catch (error) {
+                      console.error("Error deleting exercise:", error);
+                    }
+                  }
                   const updated = exercises.filter((ex) => ex.pageId !== exercise.pageId);
                   setExercises(updated);
-                  saveProgress(updated);
                 }}
                 className="absolute top-4 right-4 text-red-600 hover:text-red-800 hover:bg-red-50 p-1 rounded transition-colors"
                 title="Remove exercise"
