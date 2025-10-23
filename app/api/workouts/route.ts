@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { DateTime } from "luxon";
 import { Client } from "@notionhq/client";
 
 export async function POST(request: Request) {
@@ -21,12 +22,32 @@ export async function POST(request: Request) {
     const WEEKLY_WORKOUT_DB = process.env.NOTION_WEEKLY_WORKOUT_DB!;
     const DAILY_WORKOUTS_DB = process.env.NOTION_DAILY_WORKOUTS_DB!;
 
-    // Fetch the template name
+    // Fetch the template name and estimated time
     const templatePage = await notion.pages.retrieve({ page_id: templateId });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const templatePageAny = templatePage as any;
     const templateName =
-      (templatePage as any).properties.Name?.title?.[0]?.plain_text ||
+      templatePageAny.properties.Name?.title?.[0]?.plain_text ||
       "Workout";
+    const estimatedTime = templatePageAny.properties["Estimated Time"]?.number || 0;
+
+    // Calculate time range for Daily Workouts if estimated time exists
+    let dailyWorkoutDateValue: any;
+    if (estimatedTime > 0) {
+      // Use Luxon to create local time without timezone conversion
+      const startDateTime = DateTime.fromISO(date).set({ hour: 6, minute: 30, second: 0 });
+      const endDateTime = startDateTime.plus({ minutes: estimatedTime });
+
+      const startISO = startDateTime.toISO({ suppressMilliseconds: true }).split('+')[0].split('Z')[0];
+      const endISO = endDateTime.toISO({ suppressMilliseconds: true }).split('+')[0].split('Z')[0];
+
+      dailyWorkoutDateValue = {
+        start: startISO,
+        end: endISO,
+      };
+    } else {
+      dailyWorkoutDateValue = { start: date };
+    }
 
     // Check if a daily workout entry already exists for this date
     const existingDailyWorkout = await notion.databases.query({
@@ -55,7 +76,7 @@ export async function POST(request: Request) {
             ],
           },
           Date: {
-            date: { start: date },
+            date: dailyWorkoutDateValue,
           },
           Completed: {
             checkbox: false,
@@ -116,6 +137,7 @@ export async function POST(request: Request) {
 
     // Create a workout entry for each exercise
     const createdWorkouts = [];
+
     for (const { exerciseId, exerciseName, defaultSets, defaultReps } of exercisesToCreate) {
       const workoutEntry = await notion.pages.create({
         parent: { database_id: WEEKLY_WORKOUT_DB },

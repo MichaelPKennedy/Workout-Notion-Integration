@@ -14,6 +14,7 @@ interface WorkoutTemplate {
   name: string;
   exercises: TemplateExercise[];
   bodyGroups: string[];
+  estimatedTime?: number; // in minutes
 }
 
 export async function GET() {
@@ -121,6 +122,7 @@ export async function GET() {
             })
           ),
           bodyGroups,
+          estimatedTime: p.properties["Estimated Time"]?.number || 0,
         };
       }
     );

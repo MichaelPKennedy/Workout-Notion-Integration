@@ -3,7 +3,7 @@ import { Client } from "@notionhq/client";
 
 export async function POST(request: Request) {
   try {
-    const { templateId, exerciseId, exerciseName, date, totalSets, totalReps, maxWeight } =
+    const { templateId, exerciseId, exerciseName, date, totalSets, totalReps, maxWeight, startTime, endTime } =
       await request.json();
 
     if (!templateId || !exerciseId || !exerciseName || !date) {
@@ -52,42 +52,46 @@ export async function POST(request: Request) {
     }
 
     // Create a new workout entry
+    const workoutProperties: any = {
+      Name: {
+        title: [
+          {
+            text: {
+              content: `${templateName} - ${exerciseName}`,
+            },
+          },
+        ],
+      },
+      Date: {
+        date: startTime && endTime
+          ? { start: `${date}T${startTime}`, end: `${date}T${endTime}` }
+          : { start: date },
+      },
+      Exercises: {
+        relation: [{ id: exerciseId }],
+      },
+      "Workout Template": {
+        relation: [{ id: templateId }],
+      },
+      ...(templateExerciseId && {
+        "Template Exercise": {
+          relation: [{ id: templateExerciseId }],
+        },
+      }),
+      "Total Sets": {
+        number: totalSets || 0,
+      },
+      "Total Reps": {
+        number: totalReps || 0,
+      },
+      "Max Weight": {
+        number: maxWeight || 0,
+      },
+    };
+
     const workoutEntry = await notion.pages.create({
       parent: { database_id: WEEKLY_WORKOUT_DB },
-      properties: {
-        Name: {
-          title: [
-            {
-              text: {
-                content: `${templateName} - ${exerciseName}`,
-              },
-            },
-          ],
-        },
-        Date: {
-          date: { start: date },
-        },
-        Exercises: {
-          relation: [{ id: exerciseId }],
-        },
-        "Workout Template": {
-          relation: [{ id: templateId }],
-        },
-        ...(templateExerciseId && {
-          "Template Exercise": {
-            relation: [{ id: templateExerciseId }],
-          },
-        }),
-        "Total Sets": {
-          number: totalSets || 0,
-        },
-        "Total Reps": {
-          number: totalReps || 0,
-        },
-        "Max Weight": {
-          number: maxWeight || 0,
-        },
-      },
+      properties: workoutProperties,
     });
 
     return NextResponse.json({

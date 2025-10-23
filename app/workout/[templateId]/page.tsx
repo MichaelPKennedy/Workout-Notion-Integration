@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ExerciseCustomizer, CustomizableExercise } from "@/app/components/ExerciseCustomizer";
+import {
+  ExerciseCustomizer,
+  CustomizableExercise,
+} from "@/app/components/ExerciseCustomizer";
 
 interface AvailableExercise {
   id: string;
@@ -43,12 +46,16 @@ export default function WorkoutPage() {
 
   const [workoutName, setWorkoutName] = useState<string>("");
   const [exercises, setExercises] = useState<ExerciseProgress[]>([]);
-  const [availableExercises, setAvailableExercises] = useState<AvailableExercise[]>([]);
+  const [availableExercises, setAvailableExercises] = useState<
+    AvailableExercise[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [templateId_, setTemplateId] = useState<string>("");
-  const [personalBestsAchieved, setPersonalBestsAchieved] = useState<Array<{ exerciseName: string; weight: number }>>([]);
+  const [personalBestsAchieved, setPersonalBestsAchieved] = useState<
+    Array<{ exerciseName: string; weight: number }>
+  >([]);
 
   useEffect(() => {
     loadWorkoutExercises();
@@ -111,7 +118,7 @@ export default function WorkoutPage() {
       }
 
       // Fetch personal bests for all exercises
-      const exerciseIds = workouts.map(w => w.exerciseIds[0]).filter(Boolean);
+      const exerciseIds = workouts.map((w) => w.exerciseIds[0]).filter(Boolean);
       let exerciseBests: { [key: string]: number } = {};
 
       if (exerciseIds.length > 0) {
@@ -134,7 +141,7 @@ export default function WorkoutPage() {
         // Extract exercise name (everything after " - ")
         const parts = workout.name.split(" - ");
         const exerciseName = parts.slice(1).join(" - ") || workout.name;
-        const exerciseId = workout.exerciseIds[0] || '';
+        const exerciseId = workout.exerciseIds[0] || "";
 
         return {
           pageId: workout.id,
@@ -166,16 +173,13 @@ export default function WorkoutPage() {
     }
   };
 
-
   const updateExercise = (
     pageId: string,
     field: "actualSets" | "actualReps" | "maxWeight",
     value: number | null
   ) => {
     setExercises((prev) =>
-      prev.map((ex) =>
-        ex.pageId === pageId ? { ...ex, [field]: value } : ex
-      )
+      prev.map((ex) => (ex.pageId === pageId ? { ...ex, [field]: value } : ex))
     );
   };
 
@@ -183,7 +187,11 @@ export default function WorkoutPage() {
     const exercise = exercises.find((ex) => ex.pageId === pageId);
     if (!exercise) return;
 
-    if (exercise.actualSets === null || exercise.actualReps === null || exercise.maxWeight === null) {
+    if (
+      exercise.actualSets === null ||
+      exercise.actualReps === null ||
+      exercise.maxWeight === null
+    ) {
       setMessage("Please fill in all fields before marking complete");
       return;
     }
@@ -211,9 +219,9 @@ export default function WorkoutPage() {
           setMessage(`🎉 New personal best: ${exercise.maxWeight} lbs!`);
 
           // Track this personal best for the completion page
-          setPersonalBestsAchieved(prev => [
+          setPersonalBestsAchieved((prev) => [
             ...prev,
-            { exerciseName: exercise.exerciseName, weight: exercise.maxWeight }
+            { exerciseName: exercise.exerciseName, weight: exercise.maxWeight },
           ]);
         } catch (error) {
           console.error("Failed to update personal best:", error);
@@ -241,7 +249,14 @@ export default function WorkoutPage() {
           const data = await response.json();
           // Update the pageId with the actual ID from the database
           const updated = exercises.map((ex) =>
-            ex.pageId === pageId ? { ...ex, pageId: data.workoutId, completed: true, personalBest: newBestValue } : ex
+            ex.pageId === pageId
+              ? {
+                  ...ex,
+                  pageId: data.workoutId,
+                  completed: true,
+                  personalBest: newBestValue,
+                }
+              : ex
           );
 
           // Move completed to bottom
@@ -270,7 +285,9 @@ export default function WorkoutPage() {
         if (response.ok) {
           // Mark as completed
           const updated = exercises.map((ex) =>
-            ex.pageId === pageId ? { ...ex, completed: true, personalBest: newBestValue } : ex
+            ex.pageId === pageId
+              ? { ...ex, completed: true, personalBest: newBestValue }
+              : ex
           );
 
           // Move completed to bottom
@@ -291,10 +308,16 @@ export default function WorkoutPage() {
     }
   };
 
-  const handleExercisesChange = async (customizableExercises: CustomizableExercise[]) => {
+  const handleExercisesChange = async (
+    customizableExercises: CustomizableExercise[]
+  ) => {
     // Find deleted exercises
-    const currentPageIds = new Set(customizableExercises.map((ex) => ex.pageId || `new-${ex.exerciseId}`));
-    const deletedExercises = exercises.filter((ex) => !currentPageIds.has(ex.pageId));
+    const currentPageIds = new Set(
+      customizableExercises.map((ex) => ex.pageId || `new-${ex.exerciseId}`)
+    );
+    const deletedExercises = exercises.filter(
+      (ex) => !currentPageIds.has(ex.pageId)
+    );
 
     // Delete from database
     for (const exercise of deletedExercises) {
@@ -315,9 +338,9 @@ export default function WorkoutPage() {
     }
 
     // Find newly added exercises
-    const existingPageIds = new Set(exercises.map(ex => ex.pageId));
-    const newExercises = customizableExercises.filter(ex =>
-      !ex.pageId || !existingPageIds.has(ex.pageId)
+    const existingPageIds = new Set(exercises.map((ex) => ex.pageId));
+    const newExercises = customizableExercises.filter(
+      (ex) => !ex.pageId || !existingPageIds.has(ex.pageId)
     );
 
     // Create new exercises in database immediately
@@ -354,15 +377,20 @@ export default function WorkoutPage() {
     // Convert CustomizableExercise to ExerciseProgress
     const updatedExercises = customizableExercises.map((ex) => {
       // Find existing exercise
-      const existing = exercises.find((e) => e.pageId === ex.pageId || e.pageId === `new-${ex.exerciseId}`);
+      const existing = exercises.find(
+        (e) => e.pageId === ex.pageId || e.pageId === `new-${ex.exerciseId}`
+      );
 
       // Get the real page ID if this was a newly created exercise
       const tempId = `new-${ex.exerciseId}`;
       const realPageId = exerciseIdMap.get(tempId) || ex.pageId || tempId;
 
       // Get personal best from availableExercises or existing exercise
-      const availableExercise = availableExercises.find(ae => ae.id === ex.exerciseId);
-      const personalBest = existing?.personalBest ?? availableExercise?.best ?? 0;
+      const availableExercise = availableExercises.find(
+        (ae) => ae.id === ex.exerciseId
+      );
+      const personalBest =
+        existing?.personalBest ?? availableExercise?.best ?? 0;
 
       return {
         pageId: realPageId,
@@ -380,7 +408,6 @@ export default function WorkoutPage() {
 
     setExercises(updatedExercises);
   };
-
 
   const handleFinishWorkout = async () => {
     setSaving(true);
@@ -409,7 +436,10 @@ export default function WorkoutPage() {
 
       // Save personal bests achieved for the completion page
       if (personalBestsAchieved.length > 0) {
-        localStorage.setItem("personalBestsAchieved", JSON.stringify(personalBestsAchieved));
+        localStorage.setItem(
+          "personalBestsAchieved",
+          JSON.stringify(personalBestsAchieved)
+        );
       }
 
       setMessage("Workout finished!");
@@ -512,13 +542,19 @@ export default function WorkoutPage() {
                       console.error("Error deleting exercise:", error);
                     }
                   }
-                  const updated = exercises.filter((ex) => ex.pageId !== exercise.pageId);
+                  const updated = exercises.filter(
+                    (ex) => ex.pageId !== exercise.pageId
+                  );
                   setExercises(updated);
                 }}
                 className="absolute top-4 right-4 text-red-600 hover:text-red-800 hover:bg-red-50 p-1 rounded transition-colors"
                 title="Remove exercise"
               >
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path
                     fillRule="evenodd"
                     d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
@@ -553,7 +589,9 @@ export default function WorkoutPage() {
                         clipRule="evenodd"
                       />
                     </svg>
-                    <span className="text-green-600 font-semibold">Completed</span>
+                    <span className="text-green-600 font-semibold">
+                      Completed
+                    </span>
                   </div>
                 )}
               </div>
@@ -661,7 +699,9 @@ export default function WorkoutPage() {
           <ExerciseCustomizer
             exercises={exercises.map((ex) => ({
               pageId: ex.pageId,
-              exerciseId: ex.pageId.startsWith("new-") ? ex.pageId.replace("new-", "") : ex.pageId,
+              exerciseId: ex.pageId.startsWith("new-")
+                ? ex.pageId.replace("new-", "")
+                : ex.pageId,
               exerciseName: ex.exerciseName,
               defaultSets: ex.defaultSets,
               defaultReps: ex.defaultReps,
