@@ -34,12 +34,13 @@ export async function POST(request: Request) {
     // Calculate time range for Daily Workouts if estimated time exists
     let dailyWorkoutDateValue: any;
     if (estimatedTime > 0) {
-      // Use Luxon to create local time without timezone conversion
-      const startDateTime = DateTime.fromISO(date).set({ hour: 6, minute: 30, second: 0 });
+      // Parse the date string (YYYY-MM-DD) in UTC, but add 4 hours to compensate for timezone conversion
+      const startDateTime = DateTime.fromISO(date, { zone: 'UTC' }).set({ hour: 10, minute: 30, second: 0 }); // 10:30 UTC = 6:30 EDT
       const endDateTime = startDateTime.plus({ minutes: estimatedTime });
 
-      const startISO = startDateTime.toISO({ suppressMilliseconds: true }).split('+')[0].split('Z')[0];
-      const endISO = endDateTime.toISO({ suppressMilliseconds: true }).split('+')[0].split('Z')[0];
+      // Format with Z to indicate UTC
+      const startISO = startDateTime.toISO();
+      const endISO = endDateTime.toISO();
 
       dailyWorkoutDateValue = {
         start: startISO,
