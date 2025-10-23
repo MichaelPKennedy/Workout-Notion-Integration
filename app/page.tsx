@@ -18,11 +18,13 @@ interface DayWorkout {
 interface DayCardProps {
   dayWorkout: DayWorkout;
   onEdit: (date: string) => void;
+  isMovingFrom?: boolean;
   isMovingTo?: boolean;
 }
 
-function DayCard({ dayWorkout, onEdit, isMovingTo }: DayCardProps) {
+function DayCard({ dayWorkout, onEdit, isMovingFrom, isMovingTo }: DayCardProps) {
   const hasWorkout = !!dayWorkout.template;
+  const isLoading = isMovingFrom || isMovingTo;
 
   // Make it draggable if it has a workout
   const { attributes: dragAttributes, listeners: dragListeners, setNodeRef: setDragRef, isDragging } = useDraggable({
@@ -30,14 +32,16 @@ function DayCard({ dayWorkout, onEdit, isMovingTo }: DayCardProps) {
     disabled: !hasWorkout,
   });
 
-  // Make it droppable if it doesn't have a workout
+  // Make it droppable always (can drop on empty or occupied slots for swapping)
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: dayWorkout.date,
-    disabled: hasWorkout,
   });
 
-  // Use the appropriate ref based on whether it's draggable or droppable
-  const setNodeRef = hasWorkout ? setDragRef : setDropRef;
+  // Use both refs - combine drag and drop capabilities
+  const setNodeRef = (element: HTMLElement | null) => {
+    setDragRef(element);
+    setDropRef(element);
+  };
 
   return (
     <div
@@ -87,28 +91,7 @@ function DayCard({ dayWorkout, onEdit, isMovingTo }: DayCardProps) {
       <p className="text-xs text-gray-500 mb-3">
         {dayWorkout.day.split(" ")[1]}
       </p>
-      {dayWorkout.template ? (
-        <div>
-          <p
-            className={`text-sm font-medium mb-2 ${
-              dayWorkout.completed
-                ? "text-green-800"
-                : "text-gray-800"
-            }`}
-          >
-            {dayWorkout.template.name}
-          </p>
-          <p
-            className={`text-xs ${
-              dayWorkout.completed
-                ? "text-green-700"
-                : "text-gray-600"
-            }`}
-          >
-            {dayWorkout.template.exercises.length} exercises
-          </p>
-        </div>
-      ) : isMovingTo ? (
+      {isLoading ? (
         <div className="flex items-center justify-center">
           <svg
             className="animate-spin h-8 w-8 text-blue-600"
@@ -131,6 +114,27 @@ function DayCard({ dayWorkout, onEdit, isMovingTo }: DayCardProps) {
             ></path>
           </svg>
         </div>
+      ) : dayWorkout.template ? (
+        <div>
+          <p
+            className={`text-sm font-medium mb-2 ${
+              dayWorkout.completed
+                ? "text-green-800"
+                : "text-gray-800"
+            }`}
+          >
+            {dayWorkout.template.name}
+          </p>
+          <p
+            className={`text-xs ${
+              dayWorkout.completed
+                ? "text-green-700"
+                : "text-gray-600"
+            }`}
+          >
+            {dayWorkout.template.exercises.length} exercises
+          </p>
+        </div>
       ) : (
         <p className="text-xs text-gray-500">
           {isOver ? "Drop here" : "No workout"}
@@ -147,11 +151,12 @@ export default function Home() {
   const [inProgressWorkout, setInProgressWorkout] = useState<boolean>(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingDate, setEditingDate] = useState<string>("");
+  const [movingFromDate, setMovingFromDate] = useState<string | null>(null);
   const [movingToDate, setMovingToDate] = useState<string | null>(null);
   const [todayWorkoutLoading, setTodayWorkoutLoading] = useState(true);
   const [scheduleLoading, setScheduleLoading] = useState(true);
   const [showMoveConfirm, setShowMoveConfirm] = useState(false);
-  const [pendingMove, setPendingMove] = useState<{ fromDate: string; toDate: string; workoutName: string } | null>(null);
+  const [pendingMove, setPendingMove] = useState<{ fromDate: string; toDate: string; workoutName: string; toWorkoutName?: string; isSwap: boolean } | null>(null);
   const [viewCompletedModalOpen, setViewCompletedModalOpen] = useState(false);
   const [viewingDate, setViewingDate] = useState<string>("");
 
@@ -423,10 +428,14 @@ export default function Home() {
   const handleMoveWorkout = async (fromDate: string, toDate: string) => {
     setMovingToDate(toDate);
     try {
+      // Check if toDate has a workout (swap scenario)
+      const toDay = weeklySchedule.find(d => d.date === toDate);
+      const isSwap = !!toDay?.template;
+
       const response = await fetch("/api/workouts/move", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fromDate, toDate }),
+        body: JSON.stringify({ fromDate, toDate, isSwap }),
       });
 
       if (response.ok) {
@@ -507,13 +516,16 @@ export default function Home() {
     const fromDay = weeklySchedule.find(d => d.date === fromDate);
     const toDay = weeklySchedule.find(d => d.date === toDate);
 
-    // Only allow moving if source has a workout and destination doesn't
-    if (fromDay?.template && !toDay?.template) {
+    // Allow moving if source has a workout and destination doesn't, OR if both have workouts (swap)
+    if (fromDay?.template && (!toDay?.template || toDay?.template)) {
+      const isSwap = !!toDay?.template;
       // Show confirmation modal instead of moving immediately
       setPendingMove({
         fromDate,
         toDate,
         workoutName: fromDay.template.name,
+        toWorkoutName: toDay?.template?.name,
+        isSwap,
       });
       setShowMoveConfirm(true);
     }
@@ -522,7 +534,11 @@ export default function Home() {
   const handleConfirmMove = async () => {
     if (pendingMove) {
       setShowMoveConfirm(false);
+      setMovingFromDate(pendingMove.fromDate);
+      setMovingToDate(pendingMove.toDate);
       await handleMoveWorkout(pendingMove.fromDate, pendingMove.toDate);
+      setMovingFromDate(null);
+      setMovingToDate(null);
       setPendingMove(null);
     }
   };
@@ -736,6 +752,7 @@ export default function Home() {
                     key={dayWorkout.date}
                     dayWorkout={dayWorkout}
                     onEdit={handleEditWorkout}
+                    isMovingFrom={movingFromDate === dayWorkout.date}
                     isMovingTo={movingToDate === dayWorkout.date}
                   />
                 ))}
@@ -776,15 +793,26 @@ export default function Home() {
         onClose={() => setViewCompletedModalOpen(false)}
       />
 
-      {/* Move Confirmation Modal */}
+      {/* Move/Swap Confirmation Modal */}
       {showMoveConfirm && pendingMove && (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-3">Move Workout?</h3>
+            <h3 className="text-xl font-bold text-gray-900 mb-3">
+              {pendingMove.isSwap ? "Swap Workouts?" : "Move Workout?"}
+            </h3>
             <p className="text-gray-600 mb-6">
-              Are you sure you want to move <span className="font-semibold">{pendingMove.workoutName}</span> from{" "}
-              <span className="font-semibold">{DateTime.fromISO(pendingMove.fromDate).toFormat('ccc, MMM d')}</span> to{" "}
-              <span className="font-semibold">{DateTime.fromISO(pendingMove.toDate).toFormat('ccc, MMM d')}</span>?
+              {pendingMove.isSwap ? (
+                <>
+                  Are you sure you want to swap <span className="font-semibold">{pendingMove.workoutName}</span> ({DateTime.fromISO(pendingMove.fromDate).toFormat('ccc, MMM d')}) with{" "}
+                  <span className="font-semibold">{pendingMove.toWorkoutName}</span> ({DateTime.fromISO(pendingMove.toDate).toFormat('ccc, MMM d')})?
+                </>
+              ) : (
+                <>
+                  Are you sure you want to move <span className="font-semibold">{pendingMove.workoutName}</span> from{" "}
+                  <span className="font-semibold">{DateTime.fromISO(pendingMove.fromDate).toFormat('ccc, MMM d')}</span> to{" "}
+                  <span className="font-semibold">{DateTime.fromISO(pendingMove.toDate).toFormat('ccc, MMM d')}</span>?
+                </>
+              )}
             </p>
             <div className="flex gap-3">
               <button
@@ -797,7 +825,7 @@ export default function Home() {
                 onClick={handleConfirmMove}
                 className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
               >
-                Move Workout
+                {pendingMove.isSwap ? "Swap" : "Move Workout"}
               </button>
             </div>
           </div>

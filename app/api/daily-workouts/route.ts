@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Client } from "@notionhq/client";
+import { DateTime } from "luxon";
 
 export async function GET(request: Request) {
   try {
@@ -46,12 +47,17 @@ export async function GET(request: Request) {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dailyWorkouts = response.results.map((page: any) => ({
-      id: page.id,
-      name: page.properties.Name?.title?.[0]?.plain_text || "",
-      date: page.properties.Date?.date?.start || "",
-      completed: page.properties.Completed?.checkbox || false,
-    }));
+    const dailyWorkouts = response.results.map((page: any) => {
+      const dateValue = page.properties.Date?.date?.start || "";
+      // Extract just the date part (YYYY-MM-DD) from full datetime strings
+      const dateOnly = dateValue ? DateTime.fromISO(dateValue).toISODate() : "";
+      return {
+        id: page.id,
+        name: page.properties.Name?.title?.[0]?.plain_text || "",
+        date: dateOnly,
+        completed: page.properties.Completed?.checkbox || false,
+      };
+    });
 
     return NextResponse.json(dailyWorkouts);
   } catch (error) {
