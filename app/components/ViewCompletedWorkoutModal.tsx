@@ -48,8 +48,8 @@ export function ViewCompletedWorkoutModal({
 
       if (workouts.length > 0) {
         // Extract workout name from first entry
-        const parts = workouts[0].name.split(" - ");
-        setWorkoutName(parts[0] || "Workout");
+        const firstParts = workouts[0].name.split(" - ");
+        setWorkoutName(firstParts[0] || "Workout");
 
         // Get all exercise IDs
         const exerciseIds = workouts.map((w: any) => w.exerciseId);
@@ -63,18 +63,24 @@ export function ViewCompletedWorkoutModal({
         const bests = await bestsResponse.json();
 
         // Map workouts to exercise data
-        const exerciseData: ExerciseData[] = workouts.map((workout: any) => ({
-          pageId: workout.id,
-          exerciseId: workout.exerciseId,
-          exerciseName: parts[1] || workout.name,
-          defaultSets: workout.sets || 0,
-          defaultReps: workout.reps || 0,
-          actualSets: workout.sets || 0,
-          actualReps: workout.reps || 0,
-          maxWeight: workout.maxWeight || 0,
-          completed: workout.completed || false,
-          personalBest: bests[workout.exerciseId] || 0,
-        }));
+        const exerciseData: ExerciseData[] = workouts.map((workout: any) => {
+          // Extract exercise name from each workout's name
+          const parts = workout.name.split(" - ");
+          const exerciseName = parts.slice(1).join(" - ") || workout.name;
+
+          return {
+            pageId: workout.id,
+            exerciseId: workout.exerciseId,
+            exerciseName,
+            defaultSets: workout.sets || 0,
+            defaultReps: workout.reps || 0,
+            actualSets: workout.sets || 0,
+            actualReps: workout.reps || 0,
+            maxWeight: workout.maxWeight || 0,
+            completed: workout.completed || false,
+            personalBest: bests[workout.exerciseId] || 0,
+          };
+        });
 
         setExercises(exerciseData);
       }
